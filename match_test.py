@@ -3,6 +3,7 @@ import chess
 import chess.engine
 import sys
 
+
 def play_match(tiny_color, game_number):
     board = chess.Board()
 
@@ -16,25 +17,42 @@ def play_match(tiny_color, game_number):
 
     try:
         print(f"\n=== GAME {game_number} ===")
-        print("Tiny Beast:", "White" if tiny_color == chess.WHITE else "Black")
+        print(
+            "Tiny Beast:",
+            "White" if tiny_color == chess.WHITE else "Black"
+        )
 
-        while not board.is_game_over() and board.fullmove_number <= 100:
+        while not board.is_game_over() and board.fullmove_number <= 200:
             if board.turn == tiny_color:
-                result = tiny.play(board, chess.engine.Limit(depth=3))
+                result = tiny.play(
+                    board,
+                    chess.engine.Limit(depth=3)
+                )
                 move = result.move
             else:
-                result = stockfish.play(board, chess.engine.Limit(depth=3))
+                result = stockfish.play(
+                    board,
+                    chess.engine.Limit(depth=3)
+                )
                 move = result.move
 
             if move is None or move not in board.legal_moves:
                 print("Invalid move detected.")
                 break
 
-            print(board.fullmove_number, "White" if board.turn else "Black", move.uci())
+            print(
+                board.fullmove_number,
+                "White" if board.turn else "Black",
+                move.uci()
+            )
+
             board.push(move)
 
         print("Result:", board.result(claim_draw=True))
         print("Reason:", board.outcome(claim_draw=True))
+
+        if not board.is_game_over():
+            print("Game stopped at the 200-move limit.")
 
     finally:
         tiny.quit()
