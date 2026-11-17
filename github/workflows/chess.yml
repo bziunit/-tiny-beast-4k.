@@ -1,4 +1,4 @@
-name: Tiny Beast Chess Engine
+name: Tiny Beast Chess Engine v2
 
 on:
   workflow_dispatch:
