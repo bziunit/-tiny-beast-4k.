@@ -7,6 +7,7 @@ NAME = "Tiny Beast"
 MATE = 100000
 INF = 1000000
 DEFAULT_MOVE_TIME = 0.75
+DRAW_CONTEMPT = 40
 
 VALUES = {
     chess.PAWN: 100,
@@ -270,6 +271,17 @@ class TinyBeast:
 
         return score if board.turn == chess.WHITE else -score
 
+    def draw_score(self, board):
+        score = self.evaluate(board)
+
+        if score > 60:
+            return -DRAW_CONTEMPT
+
+        if score < -60:
+            return DRAW_CONTEMPT
+
+        return 0
+
     def move_score(self, board, move, tt_move=None, ply=0):
         if move == tt_move:
             return 2000000
@@ -371,6 +383,9 @@ class TinyBeast:
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
 
+        if board.is_repetition(3) or board.is_fifty_moves():
+            return self.draw_score(board)
+
         if qply >= 8:
             return self.evaluate(board)
 
@@ -431,8 +446,8 @@ class TinyBeast:
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
 
-        if board.is_repetition(3):
-            return 0
+        if board.is_repetition(3) or board.is_fifty_moves():
+            return self.draw_score(board)
 
         if depth <= 0:
             return self.quiescence(
@@ -440,9 +455,10 @@ class TinyBeast:
             )
 
         original_alpha = alpha
+        history_sensitive = board.is_repetition(2)
         key = board.fen()
 
-        tt_entry = self.tt.get(key)
+        tt_entry = None if history_sensitive else self.tt.get(key)
         tt_move = None
 
         if tt_entry:
@@ -507,12 +523,13 @@ class TinyBeast:
         else:
             flag = "EXACT"
 
-        self.tt[key] = (
-            depth,
-            best_score,
-            flag,
-            best_move
-        )
+        if not history_sensitive:
+            self.tt[key] = (
+                depth,
+                best_score,
+                flag,
+                best_move
+            )
 
         if len(self.tt) > 200000:
             self.tt.clear()
@@ -549,7 +566,10 @@ class TinyBeast:
             if self.stopped:
                 break
 
-            entry = self.tt.get(board.fen())
+            entry = (
+                None if board.is_repetition(2)
+                else self.tt.get(board.fen())
+            )
 
             if entry and entry[3] in legal:
                 best = entry[3]
