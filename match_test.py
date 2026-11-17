@@ -3,8 +3,8 @@ import chess
 import chess.engine
 import sys
 
-
 DEPTH = 4
+TINY_MOVE_TIME = 1.0
 MAX_MOVES = 200
 
 
@@ -19,6 +19,8 @@ def play_match(tiny_color, game_number):
         "/usr/games/stockfish"
     )
 
+    stopped_reason = None
+
     try:
         print(f"\n=== GAME {game_number} ===")
         print(
@@ -26,12 +28,19 @@ def play_match(tiny_color, game_number):
             "White" if tiny_color == chess.WHITE else "Black"
         )
         print("Search depth:", DEPTH)
+        print("Tiny Beast time limit:", TINY_MOVE_TIME, "seconds")
 
-        while not board.is_game_over() and board.fullmove_number <= MAX_MOVES:
+        while (
+            not board.is_game_over(claim_draw=True)
+            and board.fullmove_number <= MAX_MOVES
+        ):
             if board.turn == tiny_color:
                 result = tiny.play(
                     board,
-                    chess.engine.Limit(depth=DEPTH)
+                    chess.engine.Limit(
+                        depth=DEPTH,
+                        time=TINY_MOVE_TIME
+                    )
                 )
                 move = result.move
                 player = "Tiny Beast"
@@ -44,22 +53,30 @@ def play_match(tiny_color, game_number):
                 player = "Stockfish"
 
             if move is None or move not in board.legal_moves:
-                print("Invalid move detected:", player)
+                stopped_reason = "Invalid move detected: " + player
+                print(stopped_reason)
                 break
 
             print(
                 board.fullmove_number,
                 "White" if board.turn else "Black",
-                move.uci()
+                move.uci(),
+                flush=True
             )
 
             board.push(move)
 
-        print("Result:", board.result(claim_draw=True))
-        print("Reason:", board.outcome(claim_draw=True))
+        outcome = board.outcome(claim_draw=True)
 
-        if not board.is_game_over():
-            print("Game stopped at the 200-move limit.")
+        if outcome:
+            print("Result:", outcome.result())
+            print("Reason:", outcome.termination)
+        else:
+            print("Result: *")
+            print("Reason: Move limit reached.")
+
+        if stopped_reason:
+            print("Test warning:", stopped_reason)
 
     finally:
         tiny.quit()
