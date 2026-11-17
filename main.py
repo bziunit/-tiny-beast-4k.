@@ -115,7 +115,7 @@ class TinyBeast:
 
         return best
 
-        def choose_move(self):
+         def choose_move(self):
         best_move = None
         self.nodes = 0
 
