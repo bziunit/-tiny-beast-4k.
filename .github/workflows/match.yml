@@ -1,0 +1,37 @@
+
+name: Tiny Beast vs Stockfish
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'main.py'
+      - 'match_test.py'
+      - 'requirements.txt'
+      - '.github/workflows/match.yml'
+
+jobs:
+  match:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Install Stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+
+      - name: Run match
+        run: |
+          python match_test.py
