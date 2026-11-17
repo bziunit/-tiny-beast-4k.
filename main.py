@@ -17,6 +17,7 @@ class TinyBeast:
         self.board = chess.Board()
         self.depth = depth
         self.nodes = 0
+        self.tt = {}
 
     def evaluate(self):
         if self.board.is_checkmate():
@@ -49,8 +50,7 @@ class TinyBeast:
 
             if piece.piece_type == chess.PAWN:
                 advancement = (
-                    rank if piece.color == chess.WHITE
-                    else 7 - rank
+                    rank if piece.color else 7 - rank
                 )
                 bonus += advancement * 5
 
@@ -72,13 +72,11 @@ class TinyBeast:
 
             if victim is None and self.board.is_en_passant(move):
                 score += 100
-
             elif victim is not None:
+                attacker = self.board.piece_at(move.from_square)
                 score += (
                     10 * PIECE_VALUES[victim.piece_type]
-                    - PIECE_VALUES[self.board.piece_at(
-                        move.from_square
-                    ).piece_type]
+                    - PIECE_VALUES[attacker.piece_type]
                 )
 
         if move.promotion:
@@ -92,40 +90,91 @@ class TinyBeast:
         if depth == 0 or self.board.is_game_over():
             return self.evaluate()
 
-        best = -float("inf")
+        original_alpha = alpha
+        key = self.board.fen()
 
-        moves = sorted(
-            self.board.legal_moves,
+        entry = self.tt.get(key)
+        tt_move = None
+
+        if entry is not None:
+            stored_depth, stored_score, flag, stored_move = entry
+
+            if stored_move is not None:
+                tt_move = chess.Move.from_uci(stored_move)
+
+            if stored_depth >= depth:
+                if flag == "EXACT":
+                    return stored_score
+                elif flag == "LOWER":
+                    alpha = max(alpha, stored_score)
+                elif flag == "UPPER":
+                    beta = min(beta, stored_score)
+
+                if alpha >= beta:
+                    return stored_score
+
+        moves = list(self.board.legal_moves)
+
+        moves.sort(
             key=self.move_score,
             reverse=True
         )
 
+        if tt_move in moves:
+            moves.remove(tt_move)
+            moves.insert(0, tt_move)
+
+        best = -float("inf")
+        best_move = None
+
         for move in moves:
             self.board.push(move)
+
             score = -self.alphabeta(
-                depth - 1, -beta, -alpha
+                depth - 1,
+                -beta,
+                -alpha
             )
+
             self.board.pop()
 
-            best = max(best, score)
+            if score > best:
+                best = score
+                best_move = move
+
             alpha = max(alpha, score)
 
             if alpha >= beta:
                 break
 
+        if best <= original_alpha:
+            flag = "UPPER"
+        elif best >= beta:
+            flag = "LOWER"
+        else:
+            flag = "EXACT"
+
+        self.tt[key] = (
+            depth,
+            best,
+            flag,
+            best_move.uci() if best_move else None
+        )
+
         return best
 
-         def choose_move(self):
+    def choose_move(self):
         best_move = None
         self.nodes = 0
+        self.tt.clear()
 
         for current_depth in range(1, self.depth + 1):
             best_score = -float("inf")
             alpha = -float("inf")
             beta = float("inf")
 
-            moves = sorted(
-                self.board.legal_moves,
+            moves = list(self.board.legal_moves)
+            moves.sort(
                 key=self.move_score,
                 reverse=True
             )
@@ -148,3 +197,73 @@ class TinyBeast:
                 alpha = max(alpha, score)
 
         return best_move
+
+
+def uci():
+    engine = TinyBeast(depth=3)
+
+    while True:
+        command = input().strip()
+
+        if command == "uci":
+            print("id name Tiny Beast 4K")
+            print("id author Tiny Beast")
+            print("uciok", flush=True)
+
+        elif command == "isready":
+            print("readyok", flush=True)
+
+        elif command == "ucinewgame":
+            engine.board.reset()
+            engine.tt.clear()
+
+        elif command.startswith("position"):
+            parts = command.split()
+
+            if "startpos" in parts:
+                engine.board.reset()
+
+                if "moves" in parts:
+                    idx = parts.index("moves") + 1
+                    for move in parts[idx:]:
+                        engine.board.push_uci(move)
+
+            elif "fen" in parts:
+                idx = parts.index("fen") + 1
+
+                fen_end = (
+                    parts.index("moves")
+                    if "moves" in parts else len(parts)
+                )
+
+                engine.board.set_fen(
+                    " ".join(parts[idx:fen_end])
+                )
+
+                if "moves" in parts:
+                    idx = parts.index("moves") + 1
+                    for move in parts[idx:]:
+                        engine.board.push_uci(move)
+
+        elif command.startswith("go"):
+            move = engine.choose_move()
+
+            if move:
+                print("bestmove", move.uci(), flush=True)
+            else:
+                print("bestmove 0000", flush=True)
+
+        elif command == "quit":
+            break
+
+
+if __name__ == "__main__":
+    if "--uci" in sys.argv:
+        uci()
+    else:
+        engine = TinyBeast(depth=3)
+        move = engine.choose_move()
+
+        print("Tiny Beast:", move)
+        print("Nodes:", engine.nodes)
+        print("Zapamiętane pozycje:", len(engine.tt))
