@@ -21,11 +21,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-                  - name: Test Tiny Beast
+      - name: Test Tiny Beast
         run: |
           python -c "import chess; from main import TinyBeast; e=TinyBeast(depth=2); m=e.choose_move(); print('MOVE:', m); assert m in e.board.legal_moves; print('ENGINE OK')"
 
-                  - name: Test UCI
+      - name: Test UCI
         run: |
           python - <<'PY'
           import subprocess
@@ -43,9 +43,9 @@ jobs:
 
           print(output)
 
-          assert "uciok" in output, "Missing uciok"
-          assert "readyok" in output, "Missing readyok"
-          assert "bestmove" in output, "Missing bestmove"
+          assert "uciok" in output
+          assert "readyok" in output
+          assert "bestmove" in output
 
           print("UCI TEST OK")
           PY
