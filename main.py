@@ -71,10 +71,12 @@ class TinyBeast:
             else:
                 score -= value
 
+                mobility = board.legal_moves.count()
+
         score += (
-            len(board.legal_moves) * 2
+            mobility * 2
             if board.turn == chess.WHITE
-            else -len(board.legal_moves) * 2
+            else -mobility * 2
         )
 
         return score if board.turn == chess.WHITE else -score
