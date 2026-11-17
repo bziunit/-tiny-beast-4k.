@@ -101,8 +101,11 @@ class TinyBeast:
     def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
-        if depth == 0 or self.board.is_game_over():
-            return self.evaluate()
+        if self.board.is_game_over():
+    return self.evaluate()
+
+if depth == 0:
+    return self.quiescence(alpha, beta, ply)
 
         original_alpha = alpha
         original_beta = beta
