@@ -1,3 +1,4 @@
+
 name: Tiny Beast Chess Engine
 
 on:
@@ -9,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,6 +27,37 @@ jobs:
         run: |
           python -c "import chess; from main import TinyBeast; e=TinyBeast(depth=2); m=e.choose_move(); print('MOVE:', m); assert m in e.board.legal_moves; print('ENGINE OK')"
 
+      - name: Test checkmate position
+        run: |
+          python - <<'PY'
+          import chess
+
+          board = chess.Board(
+              "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1"
+          )
+
+          assert board.is_checkmate()
+          print("CHECKMATE TEST OK")
+          PY
+
+      - name: Test pawn promotion
+        run: |
+          python - <<'PY'
+          import chess
+
+          board = chess.Board(
+              "4k3/P7/8/8/8/8/8/4K3 w - - 0 1"
+          )
+
+          promotions = [
+              move for move in board.legal_moves
+              if move.promotion
+          ]
+
+          assert promotions
+          print("PROMOTION TEST OK")
+          PY
+
       - name: Test UCI
         run: |
           python - <<'PY'
@@ -39,7 +72,10 @@ jobs:
           )
 
           commands = "uci\nisready\nposition startpos\ngo\n"
-          output, _ = engine.communicate(commands + "quit\n", timeout=30)
+          output, _ = engine.communicate(
+              commands + "quit\n",
+              timeout=30
+          )
 
           print(output)
 
