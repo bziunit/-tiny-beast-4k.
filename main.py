@@ -130,6 +130,7 @@ if __name__ == "__main__":
         print("Nodes:", engine.nodes)
         print("Zapamiętane pozycje:", len(engine.tt))
 
+   
     def evaluate(self):
         if self.board.is_checkmate():
             return -100000
@@ -149,6 +150,112 @@ if __name__ == "__main__":
             piece = self.board.piece_at(square)
 
             if piece is None:
+                continue
+
+            file = chess.square_file(square)
+            rank = chess.square_rank(square)
+
+            center = 7 - (
+                abs(3.5 - file) + abs(3.5 - rank)
+            )
+
+            bonus = int(center * 8)
+
+            if piece.piece_type == chess.PAWN:
+                advancement = rank if piece.color else 7 - rank
+                bonus += advancement * 5
+
+            if piece.piece_type == chess.KNIGHT:
+                bonus += int(center * 5)
+
+            if piece.piece_type == chess.BISHOP:
+                bonus += int(center * 3)
+
+            score += bonus if piece.color else -bonus
+
+        # Pawn structure, passed pawns and king safety
+        for color in (chess.WHITE, chess.BLACK):
+            sign = 1 if color else -1
+            pawns = list(self.board.pieces(chess.PAWN, color))
+            enemy_pawns = list(
+                self.board.pieces(chess.PAWN, not color)
+            )
+            files = [chess.square_file(sq) for sq in pawns]
+
+            for square in pawns:
+                file = chess.square_file(square)
+                rank = chess.square_rank(square)
+
+                # Doubled pawns
+                count = files.count(file)
+                if count > 1:
+                    score -= sign * 15
+
+                # Isolated pawns
+                has_neighbor = (
+                    file > 0 and (file - 1) in files
+                ) or (
+                    file < 7 and (file + 1) in files
+                )
+
+                if not has_neighbor:
+                    score -= sign * 12
+
+                # Passed pawns
+                is_passed = True
+
+                for enemy_square in enemy_pawns:
+                    enemy_file = chess.square_file(enemy_square)
+                    enemy_rank = chess.square_rank(enemy_square)
+
+                    same_or_adjacent_file = abs(
+                        file - enemy_file
+                    ) <= 1
+
+                    ahead = (
+                        enemy_rank > rank
+                        if color else enemy_rank < rank
+                    )
+
+                    if same_or_adjacent_file and ahead:
+                        is_passed = False
+                        break
+
+                if is_passed:
+                    advancement = (
+                        rank if color else 7 - rank
+                    )
+                    bonus = 20 + advancement * 12
+                    score += sign * bonus
+
+            # King pawn shield
+            king_square = self.board.king(color)
+
+            if king_square is not None:
+                king_file = chess.square_file(king_square)
+                king_rank = chess.square_rank(king_square)
+
+                shield_rank = (
+                    king_rank + 1 if color
+                    else king_rank - 1
+                )
+
+                if 0 <= shield_rank < 8:
+                    for f in range(
+                        max(0, king_file - 1),
+                        min(7, king_file + 1) + 1
+                    ):
+                        shield_square = chess.square(
+                            f, shield_rank
+                        )
+
+                        if self.board.piece_at(shield_square) == chess.Piece(
+                            chess.PAWN, color
+                        ):
+                            score += sign * 18
+
+        return score if self.board.turn else -score
+ 
                 continue
 
             file = chess.square_file(square)
