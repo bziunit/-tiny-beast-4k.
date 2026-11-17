@@ -98,11 +98,63 @@ class TinyBeast:
             0
         )
 
+    def quiescence(self, alpha, beta, ply=0):
+        self.nodes += 1
+
+        if self.board.is_checkmate():
+            return -100000 + ply
+
+        if self.board.is_game_over():
+            return 0
+
+        in_check = self.board.is_check()
+
+        if not in_check:
+            stand_pat = self.evaluate()
+
+            if stand_pat >= beta:
+                return beta
+
+            alpha = max(alpha, stand_pat)
+
+            moves = [
+                move for move in self.board.legal_moves
+                if self.board.is_capture(move) or move.promotion
+            ]
+        else:
+            moves = list(self.board.legal_moves)
+
+        moves.sort(
+            key=lambda move: self.move_score(move, ply),
+            reverse=True
+        )
+
+        for move in moves:
+            self.board.push(move)
+
+            score = -self.quiescence(
+                -beta,
+                -alpha,
+                ply + 1
+            )
+
+            self.board.pop()
+
+            if score >= beta:
+                return beta
+
+            alpha = max(alpha, score)
+
+        return alpha
+
     def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
-        if depth == 0 or self.board.is_game_over():
+        if self.board.is_game_over():
             return self.evaluate()
+
+        if depth <= 0:
+            return self.quiescence(alpha, beta, ply)
 
         original_alpha = alpha
         original_beta = beta
@@ -214,9 +266,7 @@ class TinyBeast:
             moves = list(self.board.legal_moves)
 
             moves.sort(
-                key=lambda move: self.move_score(
-                    move, 0
-                ),
+                key=lambda move: self.move_score(move, 0),
                 reverse=True
             )
 
@@ -311,6 +361,3 @@ if __name__ == "__main__":
         print("Tiny Beast:", move)
         print("Nodes:", engine.nodes)
         print("Zapamiętane pozycje:", len(engine.tt))
-        print("Killer moves:", sum(
-            len(moves) for moves in engine.killers.values()
-        ))
