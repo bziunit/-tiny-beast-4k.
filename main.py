@@ -97,17 +97,18 @@ class TinyBeast:
         return best_move
 
 if __name__ == "__main__":
-    engine = TinyBeast(depth=4)
+    engine = TinyBeast(depth=3)
 
-    while not engine.board.is_game_over():
+    for turn in range(10):
         move = engine.choose_move()
 
         if move is None:
+            print("GAME OVER")
             break
 
-        print("Tiny Beast:", move.uci())
+        print(f"Move {turn + 1}: {move.uci()}")
         engine.board.push(move)
 
-    print("Game over:", engine.board.result())
-    print("Final board:")
+    print("BOARD AFTER 10 MOVES:")
     print(engine.board)
+    print("TINY BEAST TEST FINISHED")
