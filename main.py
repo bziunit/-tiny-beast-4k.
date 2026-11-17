@@ -141,7 +141,7 @@ class TinyBeast:
 
         return alpha
 
-    def alphabeta(self, depth, alpha, beta, ply=0):
+        def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
         if self.board.is_game_over():
