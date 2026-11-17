@@ -25,11 +25,27 @@ jobs:
         run: |
           python -c "import chess; from main import TinyBeast; e=TinyBeast(depth=2); m=e.choose_move(); print('MOVE:', m); assert m in e.board.legal_moves; print('ENGINE OK')"
 
-      - name: Test UCI
+            - name: Test UCI
         run: |
-          output=$(printf 'uci\nisready\nposition startpos\ngo\nquit\n' | python main.py --uci)
-          echo "$output"
-          echo "$output" | grep -q "uciok"
-          echo "$output" | grep -q "readyok"
-          echo "$output" | grep -q "bestmove"
-          echo "UCI TEST OK"
+          python - <<'PY'
+          import subprocess
+
+          engine = subprocess.Popen(
+              ["python", "main.py", "--uci"],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              text=True
+          )
+
+          commands = "uci\nisready\nposition startpos\ngo\n"
+          output, _ = engine.communicate(commands + "quit\n", timeout=30)
+
+          print(output)
+
+          assert "uciok" in output, "Missing uciok"
+          assert "readyok" in output, "Missing readyok"
+          assert "bestmove" in output, "Missing bestmove"
+
+          print("UCI TEST OK")
+          PY
