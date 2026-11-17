@@ -29,13 +29,31 @@ class TinyBeast:
     def evaluate(self, board):
         if board.is_checkmate():
             return -MATE
+
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
 
         score = 0
 
-        for square, piece in board.piece_map().items():
+        bishops = {
+            chess.WHITE: 0,
+            chess.BLACK: 0,
+        }
+
+        pawn_files = {
+            chess.WHITE: [0] * 8,
+            chess.BLACK: [0] * 8,
+        }
+
+        piece_map = board.piece_map()
+        piece_count = len(piece_map)
+
+        for square, piece in piece_map.items():
+            color = piece.color
+            sign = 1 if color == chess.WHITE else -1
+
             value = VALUES[piece.piece_type]
+
             file = chess.square_file(square)
             rank = chess.square_rank(square)
 
@@ -44,15 +62,18 @@ class TinyBeast:
             )
 
             if piece.piece_type == chess.PAWN:
-                advance = rank if piece.color else 7 - rank
+                advance = rank if color else 7 - rank
                 value += advance * 8
                 value += int(center * 3)
+
+                pawn_files[color][file] += 1
 
             elif piece.piece_type == chess.KNIGHT:
                 value += int(center * 9)
 
             elif piece.piece_type == chess.BISHOP:
                 value += int(center * 5)
+                bishops[color] += 1
 
             elif piece.piece_type == chess.ROOK:
                 value += int(center * 2)
@@ -61,17 +82,40 @@ class TinyBeast:
                 value += int(center * 2)
 
             elif piece.piece_type == chess.KING:
-                if len(board.piece_map()) <= 12:
+                if piece_count <= 12:
                     value += int(center * 10)
                 else:
                     value -= int(center * 5)
 
-            if piece.color == chess.WHITE:
-                score += value
-            else:
-                score -= value
+            score += sign * value
 
-                mobility = board.legal_moves.count()
+        # Pawn structure: doubled and isolated pawns
+        for color in (chess.WHITE, chess.BLACK):
+            sign = 1 if color == chess.WHITE else -1
+            files = pawn_files[color]
+
+            for file in range(8):
+                if files[file] > 1:
+                    score -= sign * 12 * (files[file] - 1)
+
+                if files[file] > 0:
+                    left = (
+                        file > 0 and files[file - 1] > 0
+                    )
+
+                    right = (
+                        file < 7 and files[file + 1] > 0
+                    )
+
+                    if not left and not right:
+                        score -= sign * 10 * files[file]
+
+            # Bishop pair bonus
+            if bishops[color] >= 2:
+                score += sign * 25
+
+        # Mobility: count legal moves once
+        mobility = board.legal_moves.count()
 
         score += (
             mobility * 2
@@ -97,11 +141,16 @@ class TinyBeast:
             victim_value = (
                 VALUES[victim.piece_type] if victim else 100
             )
+
             attacker_value = (
                 VALUES[attacker.piece_type] if attacker else 0
             )
 
-            score += 50000 + victim_value * 10 - attacker_value
+            score += (
+                50000
+                + victim_value * 10
+                - attacker_value
+            )
 
         return score
 
@@ -163,9 +212,15 @@ class TinyBeast:
 
         for move in moves:
             board.push(move)
+
             score = -self.quiescence(
-                board, -beta, -alpha, ply + 1, qply + 1
+                board,
+                -beta,
+                -alpha,
+                ply + 1,
+                qply + 1
             )
+
             board.pop()
 
             if self.stopped:
@@ -194,10 +249,13 @@ class TinyBeast:
             return 0
 
         if depth <= 0:
-            return self.quiescence(board, alpha, beta, ply)
+            return self.quiescence(
+                board, alpha, beta, ply
+            )
 
         original_alpha = alpha
         key = board.fen()
+
         tt_entry = self.tt.get(key)
         tt_move = None
 
@@ -207,8 +265,10 @@ class TinyBeast:
             if tt_depth >= depth:
                 if tt_flag == "EXACT":
                     return tt_score
+
                 if tt_flag == "LOWER" and tt_score >= beta:
                     return tt_score
+
                 if tt_flag == "UPPER" and tt_score <= alpha:
                     return tt_score
 
@@ -222,9 +282,15 @@ class TinyBeast:
 
         for move in moves:
             board.push(move)
+
             score = -self.search(
-                board, depth - 1, -beta, -alpha, ply + 1
+                board,
+                depth - 1,
+                -beta,
+                -alpha,
+                ply + 1
             )
+
             board.pop()
 
             if self.stopped:
@@ -247,7 +313,10 @@ class TinyBeast:
             flag = "EXACT"
 
         self.tt[key] = (
-            depth, best_score, flag, best_move
+            depth,
+            best_score,
+            flag,
+            best_move
         )
 
         if len(self.tt) > 200000:
@@ -276,7 +345,10 @@ class TinyBeast:
             self.nodes = 0
 
             score = self.search(
-                board, current_depth, -INF, INF
+                board,
+                current_depth,
+                -INF,
+                INF
             )
 
             if self.stopped:
@@ -340,8 +412,10 @@ def uci():
                 elif len(parts) >= 2 and parts[1] == "fen":
                     fen_end = (
                         parts.index("moves")
-                        if "moves" in parts else len(parts)
+                        if "moves" in parts
+                        else len(parts)
                     )
+
                     fen = " ".join(parts[2:fen_end])
                     board = chess.Board(fen)
                     move_start = fen_end
@@ -349,9 +423,13 @@ def uci():
                 else:
                     continue
 
-                if move_start < len(parts) and parts[move_start] == "moves":
+                if (
+                    move_start < len(parts)
+                    and parts[move_start] == "moves"
+                ):
                     for move_text in parts[move_start + 1:]:
                         move = chess.Move.from_uci(move_text)
+
                         if move in board.legal_moves:
                             board.push(move)
 
@@ -379,7 +457,9 @@ def uci():
                     movetime = DEFAULT_MOVE_TIME
 
             move = engine.best_move(
-                board, depth=depth, movetime=movetime
+                board,
+                depth=depth,
+                movetime=movetime
             )
 
             print(
@@ -401,5 +481,10 @@ if __name__ == "__main__":
     else:
         engine = TinyBeast()
         board = chess.Board()
-        move = engine.best_move(board, depth=4)
+
+        move = engine.best_move(
+            board,
+            depth=4
+        )
+
         print(move)
