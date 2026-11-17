@@ -26,6 +26,10 @@ class TinyBeast:
         self.time_limit = DEFAULT_MOVE_TIME
         self.stopped = False
 
+        # Killer moves and history heuristic
+        self.killers = {}
+        self.history = {}
+
     def evaluate(self, board):
         if board.is_checkmate():
             return -MATE
@@ -34,6 +38,7 @@ class TinyBeast:
             return 0
 
         score = 0
+        pieces = board.piece_map()
 
         bishops = {
             chess.WHITE: 0,
@@ -45,13 +50,9 @@ class TinyBeast:
             chess.BLACK: [0] * 8,
         }
 
-        piece_map = board.piece_map()
-        piece_count = len(piece_map)
-
-        for square, piece in piece_map.items():
+        for square, piece in pieces.items():
             color = piece.color
             sign = 1 if color == chess.WHITE else -1
-
             value = VALUES[piece.piece_type]
 
             file = chess.square_file(square)
@@ -65,7 +66,6 @@ class TinyBeast:
                 advance = rank if color else 7 - rank
                 value += advance * 8
                 value += int(center * 3)
-
                 pawn_files[color][file] += 1
 
             elif piece.piece_type == chess.KNIGHT:
@@ -82,14 +82,14 @@ class TinyBeast:
                 value += int(center * 2)
 
             elif piece.piece_type == chess.KING:
-                if piece_count <= 12:
+                if len(pieces) <= 12:
                     value += int(center * 10)
                 else:
                     value -= int(center * 5)
 
             score += sign * value
 
-        # Pawn structure: doubled and isolated pawns
+        # Pawn structure
         for color in (chess.WHITE, chess.BLACK):
             sign = 1 if color == chess.WHITE else -1
             files = pawn_files[color]
@@ -99,22 +99,16 @@ class TinyBeast:
                     score -= sign * 12 * (files[file] - 1)
 
                 if files[file] > 0:
-                    left = (
-                        file > 0 and files[file - 1] > 0
-                    )
-
-                    right = (
-                        file < 7 and files[file + 1] > 0
-                    )
+                    left = file > 0 and files[file - 1] > 0
+                    right = file < 7 and files[file + 1] > 0
 
                     if not left and not right:
                         score -= sign * 10 * files[file]
 
-            # Bishop pair bonus
             if bishops[color] >= 2:
                 score += sign * 25
 
-        # Mobility: count legal moves once
+        # Mobility
         mobility = board.legal_moves.count()
 
         score += (
@@ -125,42 +119,88 @@ class TinyBeast:
 
         return score if board.turn == chess.WHITE else -score
 
-    def move_score(self, board, move, tt_move=None):
+    def move_score(self, board, move, tt_move=None, ply=0):
+        # Transposition table move first
         if move == tt_move:
-            return 1000000
+            return 2000000
 
         score = 0
 
+        # Promotions
         if move.promotion:
-            score += 80000 + VALUES[move.promotion]
+            score += 1000000 + VALUES[move.promotion]
 
+        # Captures: most valuable victim / least valuable attacker
         if board.is_capture(move):
             victim = board.piece_at(move.to_square)
             attacker = board.piece_at(move.from_square)
 
-            victim_value = (
-                VALUES[victim.piece_type] if victim else 100
-            )
+            if board.is_en_passant(move):
+                victim_value = VALUES[chess.PAWN]
+            else:
+                victim_value = (
+                    VALUES[victim.piece_type] if victim else 100
+                )
 
             attacker_value = (
                 VALUES[attacker.piece_type] if attacker else 0
             )
 
             score += (
-                50000
+                500000
                 + victim_value * 10
                 - attacker_value
             )
 
+            return score
+
+        # Killer moves
+        killers = self.killers.get(ply, [])
+
+        if move in killers:
+            score += 400000 - killers.index(move) * 10000
+
+        # History heuristic
+        history_key = (
+            board.turn,
+            move.from_square,
+            move.to_square
+        )
+
+        score += self.history.get(history_key, 0)
+
         return score
 
-    def ordered_moves(self, board, tt_move=None):
+    def ordered_moves(self, board, tt_move=None, ply=0):
         return sorted(
             list(board.legal_moves),
             key=lambda move: self.move_score(
-                board, move, tt_move
+                board, move, tt_move, ply
             ),
             reverse=True
+        )
+
+    def record_killer(self, move, ply):
+        killers = self.killers.setdefault(ply, [])
+
+        if move in killers:
+            killers.remove(move)
+
+        killers.insert(0, move)
+
+        if len(killers) > 2:
+            killers.pop()
+
+    def record_history(self, board, move, depth):
+        key = (
+            board.turn,
+            move.from_square,
+            move.to_square
+        )
+
+        self.history[key] = min(
+            1000000,
+            self.history.get(key, 0) + depth * depth
         )
 
     def time_check(self):
@@ -275,12 +315,17 @@ class TinyBeast:
         best_score = -INF
         best_move = None
 
-        moves = self.ordered_moves(board, tt_move)
+        moves = self.ordered_moves(board, tt_move, ply)
 
         if not moves:
             return -MATE + ply if board.is_check() else 0
 
         for move in moves:
+            quiet = (
+                not board.is_capture(move)
+                and not move.promotion
+            )
+
             board.push(move)
 
             score = -self.search(
@@ -302,7 +347,12 @@ class TinyBeast:
 
             alpha = max(alpha, score)
 
+            # Learn from quiet moves that cause a cutoff
             if alpha >= beta:
+                if quiet:
+                    self.record_killer(move, ply)
+                    self.record_history(board, move, depth)
+
                 break
 
         if best_score <= original_alpha:
@@ -402,6 +452,8 @@ def uci():
         elif cmd == "ucinewgame":
             board = chess.Board()
             engine.tt.clear()
+            engine.killers.clear()
+            engine.history.clear()
 
         elif cmd == "position":
             try:
