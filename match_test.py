@@ -4,6 +4,10 @@ import chess.engine
 import sys
 
 
+DEPTH = 4
+MAX_MOVES = 200
+
+
 def play_match(tiny_color, game_number):
     board = chess.Board()
 
@@ -21,23 +25,26 @@ def play_match(tiny_color, game_number):
             "Tiny Beast:",
             "White" if tiny_color == chess.WHITE else "Black"
         )
+        print("Search depth:", DEPTH)
 
-        while not board.is_game_over() and board.fullmove_number <= 200:
+        while not board.is_game_over() and board.fullmove_number <= MAX_MOVES:
             if board.turn == tiny_color:
                 result = tiny.play(
                     board,
-                    chess.engine.Limit(depth=3)
+                    chess.engine.Limit(depth=DEPTH)
                 )
                 move = result.move
+                player = "Tiny Beast"
             else:
                 result = stockfish.play(
                     board,
-                    chess.engine.Limit(depth=3)
+                    chess.engine.Limit(depth=DEPTH)
                 )
                 move = result.move
+                player = "Stockfish"
 
             if move is None or move not in board.legal_moves:
-                print("Invalid move detected.")
+                print("Invalid move detected:", player)
                 break
 
             print(
