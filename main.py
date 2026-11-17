@@ -371,10 +371,12 @@ class TinyBeast:
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
 
-        if qply >= 8:
-            return self.evaluate(board)
-
         in_check = board.is_check()
+
+        # Limit quiescence nie może przerwać analizy,
+        # gdy król jest szachowany.
+        if qply >= 8 and not in_check:
+            return self.evaluate(board)
 
         if not in_check:
             stand_pat = self.evaluate(board)
@@ -389,6 +391,7 @@ class TinyBeast:
                 if board.is_capture(move) or move.promotion
             ]
         else:
+            # W szachu analizujemy wszystkie legalne obrony.
             moves = list(board.legal_moves)
 
         moves.sort(
