@@ -131,7 +131,13 @@ class TinyBeast:
 
         for move in moves:
             self.board.push(move)
-            score = -self.quiescence(-beta, -alpha, ply + 1)
+
+            score = -self.quiescence(
+                -beta,
+                -alpha,
+                ply + 1
+            )
+
             self.board.pop()
 
             if score >= beta:
@@ -141,14 +147,14 @@ class TinyBeast:
 
         return alpha
 
-        def alphabeta(self, depth, alpha, beta, ply=0):
+    def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
         if self.board.is_game_over():
-    return self.evaluate()
+            return self.evaluate()
 
-if depth == 0:
-    return self.quiescence(alpha, beta, ply)
+        if depth == 0:
+            return self.quiescence(alpha, beta, ply)
 
         original_alpha = alpha
         original_beta = beta
@@ -213,6 +219,7 @@ if depth == 0:
 
                     if move not in killers:
                         killers.insert(0, move)
+
                         if len(killers) > 2:
                             killers.pop()
 
@@ -315,6 +322,7 @@ def uci():
 
                 if "moves" in parts:
                     idx = parts.index("moves") + 1
+
                     for move in parts[idx:]:
                         engine.board.push_uci(move)
 
@@ -332,6 +340,7 @@ def uci():
 
                 if "moves" in parts:
                     idx = parts.index("moves") + 1
+
                     for move in parts[idx:]:
                         engine.board.push_uci(move)
 
