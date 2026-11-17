@@ -1,21 +1,44 @@
 
 import chess
 import chess.engine
+import random
 import sys
 
 GAMES = 20
 DEPTH = 3
 MOVE_TIME = 0.2
-MAX_MOVES = 50
+MAX_MOVES = 100
+OPENING_PLIES = 6
+BASE_SEED = 20261117
 
 
-def play_game(tiny, stockfish, tiny_color, game_number):
+def make_opening(seed):
+    rng = random.Random(seed)
     board = chess.Board()
+    moves = []
+
+    for _ in range(OPENING_PLIES):
+        legal = list(board.legal_moves)
+        move = rng.choice(legal)
+        moves.append(move)
+        board.push(move)
+
+    return board, moves
+
+
+def play_game(tiny, stockfish, tiny_color, game_number, opening_seed):
+    board, opening_moves = make_opening(opening_seed)
     game_token = object()
 
     print(f"\n=== GAME {game_number}/{GAMES} ===", flush=True)
     print("Tiny Beast:", "White" if tiny_color else "Black", flush=True)
-    print("Depth:", DEPTH, "| Time per move:", MOVE_TIME, "seconds", flush=True)
+    print("Opening:", " ".join(
+        chess.Board().san(m) for m in []
+    ), flush=True)
+    print("Opening moves:", " ".join(
+        move.uci() for move in opening_moves
+    ), flush=True)
+    print("Depth:", DEPTH, "| Time:", MOVE_TIME, "seconds", flush=True)
 
     while (
         not board.is_game_over(claim_draw=True)
@@ -33,6 +56,7 @@ def play_game(tiny, stockfish, tiny_color, game_number):
             chess.engine.Limit(depth=DEPTH, time=MOVE_TIME),
             game=game_token,
         )
+
         move = result.move
 
         if move is None or move not in board.legal_moves:
@@ -51,6 +75,7 @@ def play_game(tiny, stockfish, tiny_color, game_number):
         board.push(move)
 
     outcome = board.outcome(claim_draw=True)
+
     if outcome is None:
         print(f"Result: unfinished (reached {MAX_MOVES}-move limit)", flush=True)
         return "unfinished"
@@ -80,11 +105,25 @@ def main():
     try:
         for game_number in range(1, GAMES + 1):
             tiny_color = chess.WHITE if game_number % 2 == 1 else chess.BLACK
-            result = play_game(tiny, stockfish, tiny_color, game_number)
+
+            # Ta sama pozycja otwarcia dla pary partii,
+            # ale Tiny Beast raz gra białymi, a raz czarnymi.
+            opening_seed = BASE_SEED + (game_number + 1) // 2
+
+            result = play_game(
+                tiny,
+                stockfish,
+                tiny_color,
+                game_number,
+                opening_seed,
+            )
             results[result] += 1
+
     finally:
         tiny.quit()
         stockfish.quit()
+
+    score = results["Tiny Beast"] + results["draw"] / 2
 
     print("\n========== MATCH SUMMARY ==========", flush=True)
     print("Games:", GAMES, flush=True)
@@ -92,11 +131,7 @@ def main():
     print("Stockfish wins:", results["Stockfish"], flush=True)
     print("Draws:", results["draw"], flush=True)
     print("Unfinished:", results["unfinished"], flush=True)
-    print(
-        "Tiny Beast score:",
-        f"{results['Tiny Beast'] + results['draw'] / 2}/{GAMES}",
-        flush=True,
-    )
+    print(f"Tiny Beast score: {score}/{GAMES}", flush=True)
 
 
 if __name__ == "__main__":
