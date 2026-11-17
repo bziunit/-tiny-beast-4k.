@@ -5,7 +5,7 @@ from main import TinyBeast
 
 
 def benchmark():
-    engine = TinyBeast(depth=3)
+    engine = TinyBeast()
 
     positions = [
         chess.STARTING_FEN,
@@ -20,10 +20,10 @@ def benchmark():
     print("-----------------------")
 
     for number, fen in enumerate(positions, 1):
-        engine.board.set_fen(fen)
+        board = chess.Board(fen)
 
         start = time.perf_counter()
-        move = engine.choose_move()
+        move = engine.best_move(board, depth=3, movetime=2.0)
         elapsed = time.perf_counter() - start
 
         nodes = engine.nodes
@@ -31,7 +31,7 @@ def benchmark():
         total_time += elapsed
 
         print(f"\nPosition: {number}")
-        print("Best move:", move)
+        print("Best move:", move.uci() if move else "0000")
         print("Nodes:", nodes)
         print("Time:", round(elapsed, 3), "seconds")
         print("Nodes/sec:", int(nodes / elapsed) if elapsed else 0)
