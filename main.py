@@ -1,7 +1,7 @@
 
 import chess
 import sys
-import time
+
 PIECE_VALUES = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
@@ -21,7 +21,187 @@ class TinyBeast:
         self.killers = {}
         self.history = {}
 
-   
+    def evaluate(self):
+        if self.board.is_checkmate():
+            return -100000
+
+        if self.board.is_game_over():
+            return 0
+
+        score = 0
+
+        for piece, value in PIECE_VALUES.items():
+            white = len(self.board.pieces(piece, chess.WHITE))
+            black = len(self.board.pieces(piece, chess.BLACK))
+            score += (white - black) * value
+
+        for square in chess.SQUARES:
+            piece = self.board.piece_at(square)
+
+            if piece is None:
+                continue
+
+            file = chess.square_file(square)
+            rank = chess.square_rank(square)
+
+            center = 7 - (
+                abs(3.5 - file) + abs(3.5 - rank)
+            )
+
+            bonus = int(center * 8)
+
+            if piece.piece_type == chess.PAWN:
+                advancement = (
+                    rank if piece.color else 7 - rank
+                )
+                bonus += advancement * 5
+
+            if piece.piece_type == chess.KNIGHT:
+                bonus += int(center * 5)
+
+            if piece.piece_type == chess.BISHOP:
+                bonus += int(center * 3)
+
+            score += bonus if piece.color else -bonus
+
+        return score if self.board.turn else -score
+
+    def move_score(self, move, ply, tt_move=None):
+        if move == tt_move:
+            return 10000000
+
+        if self.board.is_capture(move):
+            victim = self.board.piece_at(move.to_square)
+
+            if victim is None and self.board.is_en_passant(move):
+                victim_value = PIECE_VALUES[chess.PAWN]
+            elif victim is not None:
+                victim_value = PIECE_VALUES[victim.piece_type]
+            else:
+                victim_value = 0
+
+            attacker = self.board.piece_at(move.from_square)
+            attacker_value = PIECE_VALUES[attacker.piece_type]
+
+            return 1000000 + 10 * victim_value - attacker_value
+
+        if move.promotion:
+            return 900000 + PIECE_VALUES[move.promotion]
+
+        killer_moves = self.killers.get(ply, [])
+
+        if move in killer_moves:
+            return 800000 - killer_moves.index(move)
+
+        return self.history.get(
+            (self.board.turn, move.from_square, move.to_square),
+            0
+        )
+
+    def alphabeta(self, depth, alpha, beta, ply=0):
+        self.nodes += 1
+
+        if depth == 0 or self.board.is_game_over():
+            return self.evaluate()
+
+        original_alpha = alpha
+        original_beta = beta
+
+        key = self.board.fen()
+        entry = self.tt.get(key)
+        tt_move = None
+
+        if entry is not None:
+            stored_depth, stored_score, flag, stored_move = entry
+
+            if stored_move is not None:
+                tt_move = chess.Move.from_uci(stored_move)
+
+            if stored_depth >= depth:
+                if flag == "EXACT":
+                    return stored_score
+                elif flag == "LOWER":
+                    alpha = max(alpha, stored_score)
+                elif flag == "UPPER":
+                    beta = min(beta, stored_score)
+
+                if alpha >= beta:
+                    return stored_score
+
+        moves = list(self.board.legal_moves)
+
+        moves.sort(
+            key=lambda move: self.move_score(
+                move, ply, tt_move
+            ),
+            reverse=True
+        )
+
+        best = -float("inf")
+        best_move = None
+
+        for move in moves:
+            is_capture = self.board.is_capture(move)
+            moving_color = self.board.turn
+
+            self.board.push(move)
+
+            score = -self.alphabeta(
+                depth - 1,
+                -beta,
+                -alpha,
+                ply + 1
+            )
+
+            self.board.pop()
+
+            if score > best:
+                best = score
+                best_move = move
+
+            alpha = max(alpha, score)
+
+            if alpha >= beta:
+                if not is_capture and not move.promotion:
+                    killers = self.killers.setdefault(ply, [])
+
+                    if move not in killers:
+                        killers.insert(0, move)
+                        if len(killers) > 2:
+                            killers.pop()
+
+                    history_key = (
+                        moving_color,
+                        move.from_square,
+                        move.to_square
+                    )
+
+                    self.history[history_key] = (
+                        self.history.get(history_key, 0)
+                        + depth * depth
+                    )
+
+                break
+
+        if best <= original_alpha:
+            flag = "UPPER"
+        elif best >= original_beta:
+            flag = "LOWER"
+        else:
+            flag = "EXACT"
+
+        self.tt[key] = (
+            depth,
+            best,
+            flag,
+            best_move.uci() if best_move else None
+        )
+
+        return best
+
+    def choose_move(self):
+        best_move = None
+        self.nodes = 0
         self.tt.clear()
         self.killers.clear()
         self.history.clear()
@@ -34,7 +214,9 @@ class TinyBeast:
             moves = list(self.board.legal_moves)
 
             moves.sort(
-                key=lambda move: self.move_score(move, 0),
+                key=lambda move: self.move_score(
+                    move, 0
+                ),
                 reverse=True
             )
 
@@ -117,55 +299,18 @@ def uci():
 
         elif command == "quit":
             break
-def benchmark():
-    engine = TinyBeast(depth=3)
 
-    positions = [
-        chess.STARTING_FEN,
-        "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
-        "r3k2r/ppp2ppp/2n1bn2/3qp3/3P4/2N1PN2/PPP2PPP/R2QKB1R w KQkq - 0 1"
-    ]
-
-    print("TINY BEAST 4K BENCHMARK")
-    print("-----------------------")
-
-    total_nodes = 0
-    total_time = 0
-
-    for index, fen in enumerate(positions, 1):
-        engine.board.set_fen(fen)
-
-        start = time.perf_counter()
-        move = engine.choose_move()
-        elapsed = time.perf_counter() - start
-
-        nodes = engine.nodes
-        speed = nodes / elapsed if elapsed > 0 else 0
-
-        total_nodes += nodes
-        total_time += elapsed
-
-        print(f"\nPosition: {index}")
-        print("Best move:", move)
-        print("Nodes:", nodes)
-        print("Time:", round(elapsed, 3), "seconds")
-        print("Nodes/sec:", int(speed))
-
-    print("\n-----------------------")
-    print("TOTAL NODES:", total_nodes)
-    print("TOTAL TIME:", round(total_time, 3), "seconds")
-    print("AVERAGE NODES/sec:", int(
-        total_nodes / total_time if total_time > 0 else 0
-    ))
 
 if __name__ == "__main__":
     if "--uci" in sys.argv:
         uci()
-    elif "--benchmark" in sys.argv:
-        benchmark()
     else:
         engine = TinyBeast(depth=3)
         move = engine.choose_move()
 
         print("Tiny Beast:", move)
         print("Nodes:", engine.nodes)
+        print("Zapamiętane pozycje:", len(engine.tt))
+        print("Killer moves:", sum(
+            len(moves) for moves in engine.killers.values()
+        ))
