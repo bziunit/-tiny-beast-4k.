@@ -1,6 +1,5 @@
-
 import chess
-import time
+import sys
 
 PIECE_VALUES = {
     chess.PAWN: 100,
@@ -11,38 +10,25 @@ PIECE_VALUES = {
     chess.KING: 20000
 }
 
+
 class TinyBeast:
-    def __init__(self, depth=4):
+    def __init__(self, depth=3):
         self.board = chess.Board()
         self.depth = depth
         self.nodes = 0
 
     def evaluate(self):
         if self.board.is_checkmate():
-            return -100000 + self.board.ply()
+            return -100000
 
-        if self.board.is_stalemate() or self.board.is_insufficient_material():
+        if self.board.is_game_over():
             return 0
 
         score = 0
 
-        for piece_type, value in PIECE_VALUES.items():
-            score += len(self.board.pieces(piece_type, chess.WHITE)) * value
-            score -= len(self.board.pieces(piece_type, chess.BLACK)) * value
-
-        for square in chess.SQUARES:
-            piece = self.board.piece_at(square)
-            if piece:
-                center = 7 - (
-                    abs(3.5 - chess.square_file(square)) +
-                    abs(3.5 - chess.square_rank(square))
-                )
-                bonus = int(center * 8)
-
-                if piece.color == chess.WHITE:
-                    score += bonus
-                else:
-                    score -= bonus
+        for piece, value in PIECE_VALUES.items():
+            score += len(self.board.pieces(piece, chess.WHITE)) * value
+            score -= len(self.board.pieces(piece, chess.BLACK)) * value
 
         return score if self.board.turn else -score
 
@@ -54,13 +40,7 @@ class TinyBeast:
 
         best = -float("inf")
 
-        moves = sorted(
-            self.board.legal_moves,
-            key=lambda m: self.board.is_capture(m),
-            reverse=True
-        )
-
-        for move in moves:
+        for move in self.board.legal_moves:
             self.board.push(move)
             score = -self.alphabeta(depth - 1, -beta, -alpha)
             self.board.pop()
@@ -76,15 +56,11 @@ class TinyBeast:
     def choose_move(self):
         best_move = None
         best_score = -float("inf")
-        alpha = -float("inf")
-        beta = float("inf")
-
-        self.nodes = 0
 
         for move in self.board.legal_moves:
             self.board.push(move)
             score = -self.alphabeta(
-                self.depth - 1, -beta, -alpha
+                self.depth - 1, -float("inf"), float("inf")
             )
             self.board.pop()
 
@@ -92,23 +68,59 @@ class TinyBeast:
                 best_score = score
                 best_move = move
 
-            alpha = max(alpha, score)
-
         return best_move
 
-if __name__ == "__main__":
+
+def uci():
     engine = TinyBeast(depth=3)
 
-    for turn in range(10):
-        move = engine.choose_move()
+    while True:
+        command = input().strip()
 
-        if move is None:
-            print("GAME OVER")
+        if command == "uci":
+            print("id name Tiny Beast 4K")
+            print("id author Tiny Beast")
+            print("uciok", flush=True)
+
+        elif command == "isready":
+            print("readyok", flush=True)
+
+        elif command == "ucinewgame":
+            engine.board.reset()
+
+        elif command.startswith("position"):
+            parts = command.split()
+            if "startpos" in parts:
+                engine.board.reset()
+                if "moves" in parts:
+                    idx = parts.index("moves") + 1
+                    for move in parts[idx:]:
+                        engine.board.push_uci(move)
+
+            elif "fen" in parts:
+                idx = parts.index("fen") + 1
+                fen_end = parts.index("moves") if "moves" in parts else len(parts)
+                engine.board.set_fen(" ".join(parts[idx:fen_end]))
+                if "moves" in parts:
+                    idx = parts.index("moves") + 1
+                    for move in parts[idx:]:
+                        engine.board.push_uci(move)
+
+        elif command.startswith("go"):
+            move = engine.choose_move()
+            if move:
+                print("bestmove", move.uci(), flush=True)
+            else:
+                print("bestmove 0000", flush=True)
+
+        elif command == "quit":
             break
 
-        print(f"Move {turn + 1}: {move.uci()}")
-        engine.board.push(move)
 
-    print("BOARD AFTER 10 MOVES:")
-    print(engine.board)
-    print("TINY BEAST TEST FINISHED")
+if __name__ == "__main__":
+    if "--uci" in sys.argv:
+        uci()
+    else:
+        engine = TinyBeast(depth=3)
+        move = engine.choose_move()
+        print("Tiny Beast:", move)
