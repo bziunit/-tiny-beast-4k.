@@ -2,109 +2,126 @@
 import chess
 import sys
 
-PIECE_VALUES = {
+MATE = 100000
+INF = 1000000
+
+VALUES = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
-    chess.BISHOP: 330,
+    chess.BISHOP: 335,
     chess.ROOK: 500,
-    chess.QUEEN: 900,
-    chess.KING: 20000
+    chess.QUEEN: 950,
+    chess.KING: 0,
 }
 
-
 class TinyBeast:
-    def __init__(self, depth=3):
-        self.board = chess.Board()
-        self.depth = depth
-        self.nodes = 0
+    def __init__(self):
         self.tt = {}
+        self.nodes = 0
         self.killers = {}
         self.history = {}
 
     def evaluate(self):
-        if self.board.is_checkmate():
-            return -100000
-
-        if self.board.is_game_over():
-            return 0
-
+        board = self.board
         score = 0
 
-        for piece, value in PIECE_VALUES.items():
-            white = len(self.board.pieces(piece, chess.WHITE))
-            black = len(self.board.pieces(piece, chess.BLACK))
-            score += (white - black) * value
-
-        for square in chess.SQUARES:
-            piece = self.board.piece_at(square)
-
-            if piece is None:
-                continue
-
+        for square, piece in board.piece_map().items():
+            color = 1 if piece.color == chess.WHITE else -1
             file = chess.square_file(square)
             rank = chess.square_rank(square)
 
+            relative_rank = rank if color == 1 else 7 - rank
             center = 7 - (
-                abs(3.5 - file) + abs(3.5 - rank)
-            )
+                abs(2 * file - 7) + abs(2 * rank - 7)
+            ) / 2
 
-            bonus = int(center * 8)
+            value = VALUES[piece.piece_type]
 
             if piece.piece_type == chess.PAWN:
-                advancement = (
-                    rank if piece.color else 7 - rank
-                )
-                bonus += advancement * 5
+                value += relative_rank * 8
+                value += center * 2
 
-            if piece.piece_type == chess.KNIGHT:
-                bonus += int(center * 5)
+            elif piece.piece_type == chess.KNIGHT:
+                value += center * 9
 
-            if piece.piece_type == chess.BISHOP:
-                bonus += int(center * 3)
+            elif piece.piece_type == chess.BISHOP:
+                value += center * 5
 
-            score += bonus if piece.color else -bonus
+            elif piece.piece_type == chess.ROOK:
+                value += relative_rank * 2
 
-        return score if self.board.turn else -score
+            elif piece.piece_type == chess.QUEEN:
+                value += center * 2
 
-    def move_score(self, move, ply, tt_move=None):
+            elif piece.piece_type == chess.KING:
+                if board.fullmove_number < 25:
+                    value -= center * 7
+                else:
+                    value += center * 8
+
+            score += color * value
+
+        score += 10 * (
+            len(list(board.legal_moves))
+            if board.turn == chess.WHITE else
+            -len(list(board.legal_moves))
+        )
+
+        return score if board.turn == chess.WHITE else -score
+
+    def move_score(self, move, tt_move=None, ply=0):
+        board = self.board
+
         if move == tt_move:
             return 10000000
 
-        if self.board.is_capture(move):
-            victim = self.board.piece_at(move.to_square)
+        score = 0
 
-            if victim is None and self.board.is_en_passant(move):
-                victim_value = PIECE_VALUES[chess.PAWN]
-            elif victim is not None:
-                victim_value = PIECE_VALUES[victim.piece_type]
+        if board.is_capture(move):
+            victim = board.piece_at(move.to_square)
+
+            if board.is_en_passant(move):
+                victim_value = VALUES[chess.PAWN]
             else:
-                victim_value = 0
+                victim_value = VALUES[victim.piece_type] if victim else 0
 
-            attacker = self.board.piece_at(move.from_square)
-            attacker_value = PIECE_VALUES[attacker.piece_type]
+            attacker = board.piece_at(move.from_square)
+            attacker_value = VALUES[attacker.piece_type]
 
-            return 1000000 + 10 * victim_value - attacker_value
+            score += 100000 + victim_value * 10 - attacker_value
 
         if move.promotion:
-            return 900000 + PIECE_VALUES[move.promotion]
+            score += 90000 + VALUES[move.promotion]
 
-        killer_moves = self.killers.get(ply, [])
+        if board.gives_check(move):
+            score += 500
 
-        if move in killer_moves:
-            return 800000 - killer_moves.index(move)
+        if move in self.killers.get(ply, []):
+            score += 30000
 
-        return self.history.get(
-            (self.board.turn, move.from_square, move.to_square),
-            0
+        score += self.history.get(
+            (board.turn, move.from_square, move.to_square), 0
         )
 
-    def quiescence(self, alpha, beta, ply=0):
+        return score
+
+    def ordered_moves(self, moves, tt_move=None, ply=0):
+        return sorted(
+            moves,
+            key=lambda move: self.move_score(move, tt_move, ply),
+            reverse=True
+        )
+
+    def quiescence(self, alpha, beta, ply=0, qdepth=0):
         self.nodes += 1
 
         if self.board.is_checkmate():
-            return -100000 + ply
+            return -MATE + ply
 
-        if self.board.is_game_over():
+        if self.board.is_stalemate() or self.board.is_insufficient_material():
+            return 0
+
+        if self.board.is_fifty_moves() or self.board.is_repetition(3):
             return 0
 
         in_check = self.board.is_check()
@@ -115,7 +132,11 @@ class TinyBeast:
             if stand_pat >= beta:
                 return beta
 
-            alpha = max(alpha, stand_pat)
+            if stand_pat > alpha:
+                alpha = stand_pat
+
+            if qdepth >= 12:
+                return alpha
 
             moves = [
                 move for move in self.board.legal_moves
@@ -124,233 +145,226 @@ class TinyBeast:
         else:
             moves = list(self.board.legal_moves)
 
-        moves.sort(
-            key=lambda move: self.move_score(move, ply),
-            reverse=True
-        )
+        moves = self.ordered_moves(moves, ply=ply)
+
+        if in_check and not moves:
+            return -MATE + ply
 
         for move in moves:
             self.board.push(move)
-
             score = -self.quiescence(
-                -beta,
-                -alpha,
-                ply + 1
+                -beta, -alpha, ply + 1, qdepth + 1
             )
-
             self.board.pop()
 
             if score >= beta:
                 return beta
 
-            alpha = max(alpha, score)
+            if score > alpha:
+                alpha = score
 
         return alpha
 
     def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
-        if self.board.is_game_over():
-            return self.evaluate()
+        if self.board.is_checkmate():
+            return -MATE + ply
 
-        if depth == 0:
+        if (
+            self.board.is_stalemate()
+            or self.board.is_insufficient_material()
+            or self.board.is_fifty_moves()
+            or self.board.is_repetition(3)
+        ):
+            return 0
+
+        if depth <= 0:
             return self.quiescence(alpha, beta, ply)
 
         original_alpha = alpha
-        original_beta = beta
-
         key = self.board.fen()
         entry = self.tt.get(key)
         tt_move = None
 
-        if entry is not None:
-            stored_depth, stored_score, flag, stored_move = entry
-
-            if stored_move is not None:
-                tt_move = chess.Move.from_uci(stored_move)
+        if entry:
+            tt_move = entry[1]
+            stored_depth, stored_move, stored_score, flag = entry
 
             if stored_depth >= depth:
                 if flag == "EXACT":
                     return stored_score
-                elif flag == "LOWER":
-                    alpha = max(alpha, stored_score)
-                elif flag == "UPPER":
-                    beta = min(beta, stored_score)
-
-                if alpha >= beta:
+                if flag == "LOWER" and stored_score >= beta:
+                    return stored_score
+                if flag == "UPPER" and stored_score <= alpha:
                     return stored_score
 
-        moves = list(self.board.legal_moves)
-
-        moves.sort(
-            key=lambda move: self.move_score(
-                move, ply, tt_move
-            ),
-            reverse=True
+        moves = self.ordered_moves(
+            list(self.board.legal_moves), tt_move, ply
         )
 
-        best = -float("inf")
+        best_score = -INF
         best_move = None
 
         for move in moves:
-            is_capture = self.board.is_capture(move)
-            moving_color = self.board.turn
-
             self.board.push(move)
-
             score = -self.alphabeta(
-                depth - 1,
-                -beta,
-                -alpha,
-                ply + 1
+                depth - 1, -beta, -alpha, ply + 1
             )
-
             self.board.pop()
 
-            if score > best:
-                best = score
+            if score > best_score:
+                best_score = score
                 best_move = move
 
-            alpha = max(alpha, score)
+            if score > alpha:
+                alpha = score
 
             if alpha >= beta:
-                if not is_capture and not move.promotion:
+                if not self.board.is_capture(move):
                     killers = self.killers.setdefault(ply, [])
-
                     if move not in killers:
                         killers.insert(0, move)
+                    self.killers[ply] = killers[:2]
 
-                        if len(killers) > 2:
-                            killers.pop()
-
-                    history_key = (
-                        moving_color,
+                    hist_key = (
+                        self.board.turn,
                         move.from_square,
                         move.to_square
                     )
-
-                    self.history[history_key] = (
-                        self.history.get(history_key, 0)
-                        + depth * depth
+                    self.history[hist_key] = (
+                        self.history.get(hist_key, 0) + depth * depth
                     )
-
                 break
 
-        if best <= original_alpha:
+        if best_score <= original_alpha:
             flag = "UPPER"
-        elif best >= original_beta:
+        elif best_score >= beta:
             flag = "LOWER"
         else:
             flag = "EXACT"
 
-        self.tt[key] = (
-            depth,
-            best,
-            flag,
-            best_move.uci() if best_move else None
-        )
+        self.tt[key] = (depth, best_move, best_score, flag)
 
-        return best
+        if len(self.tt) > 200000:
+            self.tt.clear()
 
-    def choose_move(self):
-        best_move = None
+        return best_score
+
+    def choose_move(self, board, depth=4):
+        self.board = board.copy()
         self.nodes = 0
-        self.tt.clear()
-        self.killers.clear()
-        self.history.clear()
 
-        for current_depth in range(1, self.depth + 1):
-            best_score = -float("inf")
-            alpha = -float("inf")
-            beta = float("inf")
+        best_move = None
 
-            moves = list(self.board.legal_moves)
+        for current_depth in range(1, depth + 1):
+            alpha = -INF
+            beta = INF
+            best_score = -INF
 
-            moves.sort(
-                key=lambda move: self.move_score(
-                    move, 0
-                ),
-                reverse=True
+            moves = self.ordered_moves(
+                list(self.board.legal_moves)
             )
 
             for move in moves:
                 self.board.push(move)
-
                 score = -self.alphabeta(
                     current_depth - 1,
                     -beta,
                     -alpha,
                     1
                 )
-
                 self.board.pop()
 
                 if score > best_score:
                     best_score = score
                     best_move = move
 
-                alpha = max(alpha, score)
+                if score > alpha:
+                    alpha = score
 
         return best_move
 
 
-def uci():
-    engine = TinyBeast(depth=3)
+def uci_loop():
+    engine = TinyBeast()
+    board = chess.Board()
 
     while True:
-        command = input().strip()
+        try:
+            line = input().strip()
+        except EOFError:
+            break
+
+        if not line:
+            continue
+
+        tokens = line.split()
+        command = tokens[0]
 
         if command == "uci":
             print("id name Tiny Beast 4K")
             print("id author Tiny Beast")
-            print("uciok", flush=True)
+            print("uciok")
+            sys.stdout.flush()
 
         elif command == "isready":
-            print("readyok", flush=True)
+            print("readyok")
+            sys.stdout.flush()
 
         elif command == "ucinewgame":
-            engine.board.reset()
             engine.tt.clear()
             engine.killers.clear()
             engine.history.clear()
+            board = chess.Board()
 
-        elif command.startswith("position"):
-            parts = command.split()
+        elif command == "position":
+            try:
+                if tokens[1] == "startpos":
+                    board = chess.Board()
+                    move_index = 2
 
-            if "startpos" in parts:
-                engine.board.reset()
+                elif tokens[1] == "fen":
+                    move_index = tokens.index("moves") if "moves" in tokens else len(tokens)
+                    fen = " ".join(tokens[2:move_index])
+                    board = chess.Board(fen)
 
-                if "moves" in parts:
-                    idx = parts.index("moves") + 1
+                else:
+                    continue
 
-                    for move in parts[idx:]:
-                        engine.board.push_uci(move)
+                if "moves" in tokens:
+                    start = tokens.index("moves") + 1
+                    for move_text in tokens[start:]:
+                        move = chess.Move.from_uci(move_text)
+                        if move in board.legal_moves:
+                            board.push(move)
 
-            elif "fen" in parts:
-                idx = parts.index("fen") + 1
+            except (ValueError, IndexError):
+                print("info string Invalid position")
+                sys.stdout.flush()
 
-                fen_end = (
-                    parts.index("moves")
-                    if "moves" in parts else len(parts)
-                )
+        elif command == "go":
+            depth = 4
 
-                engine.board.set_fen(
-                    " ".join(parts[idx:fen_end])
-                )
+            if "depth" in tokens:
+                try:
+                    depth = int(tokens[tokens.index("depth") + 1])
+                except (ValueError, IndexError):
+                    depth = 4
 
-                if "moves" in parts:
-                    idx = parts.index("moves") + 1
+            depth = max(1, min(depth, 12))
 
-                    for move in parts[idx:]:
-                        engine.board.push_uci(move)
+            move = engine.choose_move(board, depth)
 
-        elif command.startswith("go"):
-            move = engine.choose_move()
-
-            if move:
-                print("bestmove", move.uci(), flush=True)
+            if move is None:
+                print("bestmove 0000")
             else:
-                print("bestmove 0000", flush=True)
+                print("bestmove", move.uci())
+
+            sys.stdout.flush()
+
+        elif command == "stop":
+            continue
 
         elif command == "quit":
             break
@@ -358,14 +372,10 @@ def uci():
 
 if __name__ == "__main__":
     if "--uci" in sys.argv:
-        uci()
+        uci_loop()
     else:
-        engine = TinyBeast(depth=3)
-        move = engine.choose_move()
-
-        print("Tiny Beast:", move)
+        engine = TinyBeast()
+        board = chess.Board()
+        move = engine.choose_move(board, 4)
+        print("Best move:", move)
         print("Nodes:", engine.nodes)
-        print("Zapamiętane pozycje:", len(engine.tt))
-        print("Killer moves:", sum(
-            len(moves) for moves in engine.killers.values()
-        ))
