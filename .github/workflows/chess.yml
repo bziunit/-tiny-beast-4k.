@@ -21,7 +21,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Test Tiny Beast
+                  - name: Test Tiny Beast
         run: |
           python -c "import chess; from main import TinyBeast; e=TinyBeast(depth=2); m=e.choose_move(); print('MOVE:', m); assert m in e.board.legal_moves; print('ENGINE OK')"
-          python main.py
+
+      - name: Test UCI
+        run: |
+          output=$(printf 'uci\nisready\nposition startpos\ngo\nquit\n' | python main.py --uci)
+          echo "$output"
+          echo "$output" | grep -q "uciok"
+          echo "$output" | grep -q "readyok"
+          echo "$output" | grep -q "bestmove"
+          echo "UCI TEST OK"
