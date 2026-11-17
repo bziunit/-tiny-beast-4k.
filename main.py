@@ -21,239 +21,7 @@ class TinyBeast:
         self.killers = {}
         self.history = {}
 
-    def evaluate(self):
-        if self.board.is_checkmate():
-            return -100000
-
-        if self.board.is_game_over():
-            return 0
-
-        score = 0
-
-        for piece, value in PIECE_VALUES.items():
-            white = len(self.board.pieces(piece, chess.WHITE))
-            black = len(self.board.pieces(piece, chess.BLACK))
-            score += (white - black) * value
-
-        for square in chess.SQUARES:
-            piece = self.board.piece_at(square)
-
-            if piece is None:
-                continue
-
-            file = chess.square_file(square)
-            rank = chess.square_rank(square)
-
-            center = 7 - (
-                abs(3.5 - file) + abs(3.5 - rank)
-            )
-
-            bonus = int(center * 8)
-
-            if piece.piece_type == chess.PAWN:
-                advancement = (
-                    rank if piece.color else 7 - rank
-                )
-                bonus += advancement * 5
-
-            if piece.piece_type == chess.KNIGHT:
-                bonus += int(center * 5)
-
-            if piece.piece_type == chess.BISHOP:
-                bonus += int(center * 3)
-
-            score += bonus if piece.color else -bonus
-
-        return score if self.board.turn else -score
-
-    def move_score(self, move, ply, tt_move=None):
-        if move == tt_move:
-            return 10000000
-
-        if self.board.is_capture(move):
-            victim = self.board.piece_at(move.to_square)
-
-            if victim is None and self.board.is_en_passant(move):
-                victim_value = PIECE_VALUES[chess.PAWN]
-            elif victim is not None:
-                victim_value = PIECE_VALUES[victim.piece_type]
-            else:
-                victim_value = 0
-
-            attacker = self.board.piece_at(move.from_square)
-            attacker_value = PIECE_VALUES[attacker.piece_type]
-
-            return 1000000 + 10 * victim_value - attacker_value
-
-        if move.promotion:
-            return 900000 + PIECE_VALUES[move.promotion]
-
-        killer_moves = self.killers.get(ply, [])
-
-        if move in killer_moves:
-            return 800000 - killer_moves.index(move)
-
-        return self.history.get(
-            (self.board.turn, move.from_square, move.to_square),
-            0
-        )
-
-    def quiescence(self, alpha, beta, ply=0):
-        self.nodes += 1
-
-        if self.board.is_checkmate():
-            return -100000 + ply
-
-        if self.board.is_game_over():
-            return 0
-
-        in_check = self.board.is_check()
-
-        if not in_check:
-            stand_pat = self.evaluate()
-
-            if stand_pat >= beta:
-                return beta
-
-            alpha = max(alpha, stand_pat)
-
-            moves = [
-                move for move in self.board.legal_moves
-                if self.board.is_capture(move) or move.promotion
-            ]
-        else:
-            moves = list(self.board.legal_moves)
-
-        moves.sort(
-            key=lambda move: self.move_score(move, ply),
-            reverse=True
-        )
-
-        for move in moves:
-            self.board.push(move)
-
-            score = -self.quiescence(
-                -beta,
-                -alpha,
-                ply + 1
-            )
-
-            self.board.pop()
-
-            if score >= beta:
-                return beta
-
-            alpha = max(alpha, score)
-
-        return alpha
-
-    def alphabeta(self, depth, alpha, beta, ply=0):
-        self.nodes += 1
-
-        if self.board.is_game_over():
-            return self.evaluate()
-
-        if depth <= 0:
-            return self.quiescence(alpha, beta, ply)
-
-        original_alpha = alpha
-        original_beta = beta
-
-        key = self.board.fen()
-        entry = self.tt.get(key)
-        tt_move = None
-
-        if entry is not None:
-            stored_depth, stored_score, flag, stored_move = entry
-
-            if stored_move is not None:
-                tt_move = chess.Move.from_uci(stored_move)
-
-            if stored_depth >= depth:
-                if flag == "EXACT":
-                    return stored_score
-                elif flag == "LOWER":
-                    alpha = max(alpha, stored_score)
-                elif flag == "UPPER":
-                    beta = min(beta, stored_score)
-
-                if alpha >= beta:
-                    return stored_score
-
-        moves = list(self.board.legal_moves)
-
-        moves.sort(
-            key=lambda move: self.move_score(
-                move, ply, tt_move
-            ),
-            reverse=True
-        )
-
-        best = -float("inf")
-        best_move = None
-
-        for move in moves:
-            is_capture = self.board.is_capture(move)
-            moving_color = self.board.turn
-
-            self.board.push(move)
-
-            score = -self.alphabeta(
-                depth - 1,
-                -beta,
-                -alpha,
-                ply + 1
-            )
-
-            self.board.pop()
-
-            if score > best:
-                best = score
-                best_move = move
-
-            alpha = max(alpha, score)
-
-            if alpha >= beta:
-                if not is_capture and not move.promotion:
-                    killers = self.killers.setdefault(ply, [])
-
-                    if move not in killers:
-                        killers.insert(0, move)
-                        if len(killers) > 2:
-                            killers.pop()
-
-                    history_key = (
-                        moving_color,
-                        move.from_square,
-                        move.to_square
-                    )
-
-                    self.history[history_key] = (
-                        self.history.get(history_key, 0)
-                        + depth * depth
-                    )
-
-                break
-
-        if best <= original_alpha:
-            flag = "UPPER"
-        elif best >= original_beta:
-            flag = "LOWER"
-        else:
-            flag = "EXACT"
-
-        self.tt[key] = (
-            depth,
-            best,
-            flag,
-            best_move.uci() if best_move else None
-        )
-
-        return best
-
-    def choose_move(self):
-        best_move = None
-        self.nodes = 0
+   
         self.tt.clear()
         self.killers.clear()
         self.history.clear()
@@ -361,3 +129,98 @@ if __name__ == "__main__":
         print("Tiny Beast:", move)
         print("Nodes:", engine.nodes)
         print("Zapamiętane pozycje:", len(engine.tt))
+
+    def evaluate(self):
+        if self.board.is_checkmate():
+            return -100000
+
+        if self.board.is_game_over():
+            return 0
+
+        score = 0
+
+        # Material and piece activity
+        for piece, value in PIECE_VALUES.items():
+            white = len(self.board.pieces(piece, chess.WHITE))
+            black = len(self.board.pieces(piece, chess.BLACK))
+            score += (white - black) * value
+
+        for square in chess.SQUARES:
+            piece = self.board.piece_at(square)
+
+            if piece is None:
+                continue
+
+            file = chess.square_file(square)
+            rank = chess.square_rank(square)
+
+            center = 7 - (
+                abs(3.5 - file) + abs(3.5 - rank)
+            )
+
+            bonus = int(center * 8)
+
+            if piece.piece_type == chess.PAWN:
+                advancement = (
+                    rank if piece.color else 7 - rank
+                )
+                bonus += advancement * 5
+
+            if piece.piece_type == chess.KNIGHT:
+                bonus += int(center * 5)
+
+            if piece.piece_type == chess.BISHOP:
+                bonus += int(center * 3)
+
+            score += bonus if piece.color else -bonus
+
+        # Pawn structure and king safety
+        for color in (chess.WHITE, chess.BLACK):
+            sign = 1 if color else -1
+            pawns = list(self.board.pieces(chess.PAWN, color))
+            files = [chess.square_file(sq) for sq in pawns]
+
+            # Doubled and isolated pawns
+            for file in range(8):
+                count = files.count(file)
+
+                if count > 1:
+                    score -= sign * 15 * (count - 1)
+
+                if count > 0:
+                    has_neighbor = (
+                        file > 0 and (file - 1) in files
+                    ) or (
+                        file < 7 and (file + 1) in files
+                    )
+
+                    if not has_neighbor:
+                        score -= sign * 12 * count
+
+            # King pawn shield
+            king_square = self.board.king(color)
+
+            if king_square is not None:
+                king_file = chess.square_file(king_square)
+                king_rank = chess.square_rank(king_square)
+
+                shield_rank = (
+                    king_rank + 1 if color
+                    else king_rank - 1
+                )
+
+                if 0 <= shield_rank < 8:
+                    for f in range(
+                        max(0, king_file - 1),
+                        min(7, king_file + 1) + 1
+                    ):
+                        shield_square = chess.square(
+                            f, shield_rank
+                        )
+
+                        if self.board.piece_at(shield_square) == chess.Piece(
+                            chess.PAWN, color
+                        ):
+                            score += sign * 18
+
+        return score if self.board.turn else -score
