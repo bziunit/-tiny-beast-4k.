@@ -19,9 +19,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Test Tiny Beast
+            - name: Test Tiny Beast
         run: |
           python -c "import chess; from main import TinyBeast; e=TinyBeast(depth=2); m=e.choose_move(); print('MOVE:', m); assert m in e.board.legal_moves; print('ENGINE OK')"
+          python main.py
