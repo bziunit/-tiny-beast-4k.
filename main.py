@@ -115,98 +115,36 @@ class TinyBeast:
 
         return best
 
-    def choose_move(self):
+        def choose_move(self):
         best_move = None
-        best_score = -float("inf")
-        alpha = -float("inf")
-        beta = float("inf")
-
         self.nodes = 0
 
-        moves = sorted(
-            self.board.legal_moves,
-            key=self.move_score,
-            reverse=True
-        )
+        for current_depth in range(1, self.depth + 1):
+            best_score = -float("inf")
+            alpha = -float("inf")
+            beta = float("inf")
 
-        for move in moves:
-            self.board.push(move)
-            score = -self.alphabeta(
-                self.depth - 1, -beta, -alpha
+            moves = sorted(
+                self.board.legal_moves,
+                key=self.move_score,
+                reverse=True
             )
-            self.board.pop()
 
-            if score > best_score:
-                best_score = score
-                best_move = move
+            for move in moves:
+                self.board.push(move)
 
-            alpha = max(alpha, score)
+                score = -self.alphabeta(
+                    current_depth - 1,
+                    -beta,
+                    -alpha
+                )
+
+                self.board.pop()
+
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+
+                alpha = max(alpha, score)
 
         return best_move
-
-
-def uci():
-    engine = TinyBeast(depth=3)
-
-    while True:
-        command = input().strip()
-
-        if command == "uci":
-            print("id name Tiny Beast 4K")
-            print("id author Tiny Beast")
-            print("uciok", flush=True)
-
-        elif command == "isready":
-            print("readyok", flush=True)
-
-        elif command == "ucinewgame":
-            engine.board.reset()
-
-        elif command.startswith("position"):
-            parts = command.split()
-
-            if "startpos" in parts:
-                engine.board.reset()
-
-                if "moves" in parts:
-                    idx = parts.index("moves") + 1
-                    for move in parts[idx:]:
-                        engine.board.push_uci(move)
-
-            elif "fen" in parts:
-                idx = parts.index("fen") + 1
-                fen_end = (
-                    parts.index("moves")
-                    if "moves" in parts else len(parts)
-                )
-
-                engine.board.set_fen(
-                    " ".join(parts[idx:fen_end])
-                )
-
-                if "moves" in parts:
-                    idx = parts.index("moves") + 1
-                    for move in parts[idx:]:
-                        engine.board.push_uci(move)
-
-        elif command.startswith("go"):
-            move = engine.choose_move()
-
-            if move:
-                print("bestmove", move.uci(), flush=True)
-            else:
-                print("bestmove 0000", flush=True)
-
-        elif command == "quit":
-            break
-
-
-if __name__ == "__main__":
-    if "--uci" in sys.argv:
-        uci()
-    else:
-        engine = TinyBeast(depth=3)
-        move = engine.choose_move()
-
-        print("Tiny Beast:", move)
-        print("Nodes:", engine.nodes)
