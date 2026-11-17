@@ -1,43 +1,67 @@
-
 import chess
 import chess.engine
-import random
 import sys
 
 GAMES = 20
 DEPTH = 3
 MOVE_TIME = 0.2
 MAX_MOVES = 100
-OPENING_PLIES = 6
-BASE_SEED = 20261117
+
+OPENINGS = [
+    ("Ruy Lopez", [
+        "e2e4", "e7e5", "g1f3",
+        "b8c6", "f1b5", "a7a6"
+    ]),
+    ("Sicilian Defense", [
+        "e2e4", "c7c5", "g1f3",
+        "d7d6", "d2d4", "c5d4"
+    ]),
+    ("Queen's Gambit", [
+        "d2d4", "d7d5", "c2c4",
+        "e7e6", "b1c3", "g8f6"
+    ]),
+    ("French Defense", [
+        "e2e4", "e7e6", "d2d4",
+        "d7d5", "b1c3", "g8f6"
+    ]),
+    ("English Opening", [
+        "c2c4", "e7e5", "b1c3",
+        "g8f6", "g2g3", "d7d5"
+    ]),
+    ("Reti Opening", [
+        "g1f3", "d7d5", "d2d4",
+        "g8f6", "c2c4", "e7e6"
+    ]),
+]
 
 
-def make_opening(seed):
-    rng = random.Random(seed)
+def make_opening(opening_index):
+    name, moves = OPENINGS[opening_index % len(OPENINGS)]
     board = chess.Board()
-    moves = []
+    san_moves = []
 
-    for _ in range(OPENING_PLIES):
-        legal = list(board.legal_moves)
-        move = rng.choice(legal)
-        moves.append(move)
+    for move_text in moves:
+        move = chess.Move.from_uci(move_text)
+
+        if move not in board.legal_moves:
+            raise ValueError(
+                f"Illegal opening move: {move_text} in {name}"
+            )
+
+        san_moves.append(board.san(move))
         board.push(move)
 
-    return board, moves
+    return board, name, san_moves
 
 
-def play_game(tiny, stockfish, tiny_color, game_number, opening_seed):
-    board, opening_moves = make_opening(opening_seed)
+def play_game(tiny, stockfish, tiny_color, game_number, opening_index):
+    board, opening_name, opening_moves = make_opening(opening_index)
     game_token = object()
 
     print(f"\n=== GAME {game_number}/{GAMES} ===", flush=True)
     print("Tiny Beast:", "White" if tiny_color else "Black", flush=True)
-    print("Opening:", " ".join(
-        chess.Board().san(m) for m in []
-    ), flush=True)
-    print("Opening moves:", " ".join(
-        move.uci() for move in opening_moves
-    ), flush=True)
+    print("Opening:", opening_name, flush=True)
+    print("Opening moves:", " ".join(opening_moves), flush=True)
     print("Depth:", DEPTH, "| Time:", MOVE_TIME, "seconds", flush=True)
 
     while (
@@ -69,7 +93,7 @@ def play_game(tiny, stockfish, tiny_color, game_number, opening_seed):
             board.fullmove_number,
             "White" if board.turn else "Black",
             player,
-            move.uci(),
+            board.san(move),
             flush=True,
         )
         board.push(move)
@@ -77,7 +101,10 @@ def play_game(tiny, stockfish, tiny_color, game_number, opening_seed):
     outcome = board.outcome(claim_draw=True)
 
     if outcome is None:
-        print(f"Result: unfinished (reached {MAX_MOVES}-move limit)", flush=True)
+        print(
+            f"Result: unfinished (reached {MAX_MOVES}-move limit)",
+            flush=True
+        )
         return "unfinished"
 
     print("Result:", outcome.result(), flush=True)
@@ -104,18 +131,18 @@ def main():
 
     try:
         for game_number in range(1, GAMES + 1):
-            tiny_color = chess.WHITE if game_number % 2 == 1 else chess.BLACK
+            tiny_color = (
+                chess.WHITE if game_number % 2 == 1 else chess.BLACK
+            )
 
-            # Ta sama pozycja otwarcia dla pary partii,
-            # ale Tiny Beast raz gra białymi, a raz czarnymi.
-            opening_seed = BASE_SEED + (game_number + 1) // 2
+            opening_index = ((game_number - 1) // 2) % len(OPENINGS)
 
             result = play_game(
                 tiny,
                 stockfish,
                 tiny_color,
                 game_number,
-                opening_seed,
+                opening_index,
             )
             results[result] += 1
 
