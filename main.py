@@ -1,15 +1,12 @@
 
 import chess
 import sys
-import time
 
-# Tiny Beast 4K — improved endgame and search
-
-INF = 1000000
-MATE = 100000
+INF = 1_000_000
+MATE = 100_000
 MAX_PLY = 96
 
-VALUES = {
+VALUE = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
     chess.BISHOP: 335,
@@ -27,57 +24,44 @@ class TinyBeast:
         self.nodes = 0
 
     def evaluate(self, board):
-        """Evaluation from White's point of view."""
         score = 0
-        endgame = (
-            len(board.pieces(chess.QUEEN, chess.WHITE))
-            + len(board.pieces(chess.QUEEN, chess.BLACK)) == 0
-            or sum(
-                VALUES[piece.piece_type]
-                for piece in board.piece_map().values()
-                if piece.piece_type != chess.KING
-            ) <= 2600
+        non_pawn_material = sum(
+            VALUE[p.piece_type]
+            for p in board.piece_map().values()
+            if p.piece_type not in (chess.PAWN, chess.KING)
         )
+        endgame = non_pawn_material <= 2600
 
         for square, piece in board.piece_map().items():
-            color_sign = 1 if piece.color == chess.WHITE else -1
-            file_index = chess.square_file(square)
-            rank_index = chess.square_rank(square)
-
-            relative_rank = (
-                rank_index if piece.color == chess.WHITE
-                else 7 - rank_index
-            )
+            sign = 1 if piece.color == chess.WHITE else -1
+            file_no = chess.square_file(square)
+            rank_no = chess.square_rank(square)
+            relative_rank = rank_no if piece.color else 7 - rank_no
 
             center = 7 - (
-                abs(2 * file_index - 7)
-                + abs(2 * rank_index - 7)
+                abs(2 * file_no - 7) + abs(2 * rank_no - 7)
             ) / 2
 
-            value = VALUES[piece.piece_type]
+            value = VALUE[piece.piece_type]
 
             if piece.piece_type == chess.PAWN:
-                value += relative_rank * 9
-                value += center * 2
+                value += relative_rank * 9 + center * 2
 
-                # Passed pawns become especially dangerous in endgames.
                 passed = True
-                for enemy_square in board.pieces(
+                for enemy_sq in board.pieces(
                     chess.PAWN, not piece.color
                 ):
-                    enemy_file = chess.square_file(enemy_square)
-                    enemy_rank = chess.square_rank(enemy_square)
+                    enemy_file = chess.square_file(enemy_sq)
+                    enemy_rank = chess.square_rank(enemy_sq)
 
-                    if abs(enemy_file - file_index) <= 1:
-                        if piece.color == chess.WHITE:
-                            if enemy_rank > rank_index:
-                                passed = False
-                        else:
-                            if enemy_rank < rank_index:
-                                passed = False
+                    if abs(enemy_file - file_no) <= 1:
+                        if piece.color and enemy_rank > rank_no:
+                            passed = False
+                        elif not piece.color and enemy_rank < rank_no:
+                            passed = False
 
                 if passed:
-                    value += (relative_rank ** 2) * (
+                    value += relative_rank * relative_rank * (
                         3 if endgame else 2
                     )
 
@@ -91,75 +75,77 @@ class TinyBeast:
                 if relative_rank == 6:
                     value += 22
 
-                # Open and semi-open files.
-                own_pawns = any(
-                    chess.square_file(s) == file_index
+                own_pawn = any(
+                    chess.square_file(s) == file_no
                     for s in board.pieces(chess.PAWN, piece.color)
                 )
-                enemy_pawns = any(
-                    chess.square_file(s) == file_index
+                enemy_pawn = any(
+                    chess.square_file(s) == file_no
                     for s in board.pieces(chess.PAWN, not piece.color)
                 )
-                if not own_pawns:
-                    value += 12 if not enemy_pawns else 6
+
+                if not own_pawn:
+                    value += 12 if not enemy_pawn else 6
 
             elif piece.piece_type == chess.QUEEN:
                 value += center * 2
 
             elif piece.piece_type == chess.KING:
                 if endgame:
-                    value += center * 10
-                    value += relative_rank * 3
+                    value += center * 10 + relative_rank * 3
                 else:
-                    # Keep the king safer during the middlegame.
                     value -= center * 5
 
-            score += color_sign * value
+                    # Small penalty for an exposed king.
+                    king_zone = chess.SquareSet(
+                        chess.BB_KING_ATTACKS[square]
+                    )
+                    enemy_attacks = board.attackers(
+                        not piece.color, square
+                    )
+                    value -= len(enemy_attacks) * 12
+
+            score += sign * value
 
         return int(score)
 
-    def is_draw(self, board):
+    def draw(self, board):
         return (
             board.is_insufficient_material()
             or board.is_fifty_moves()
             or board.is_repetition(3)
         )
 
-    def move_score(self, board, move, ply, tt_move=None):
-        if tt_move is not None and move == tt_move:
+    def move_order_score(self, board, move, ply, tt_move):
+        if move == tt_move:
             return 2_000_000
 
         if move.promotion:
-            return 1_000_000 + VALUES[move.promotion]
+            return 1_500_000 + VALUE[move.promotion]
 
         if board.is_capture(move):
             victim = board.piece_at(move.to_square)
             attacker = board.piece_at(move.from_square)
 
-            victim_value = (
-                VALUES[victim.piece_type] if victim else VALUES[chess.PAWN]
-            )
-            attacker_value = (
-                VALUES[attacker.piece_type] if attacker else 0
-            )
+            victim_value = VALUE[victim.piece_type] if victim else 100
+            attacker_value = VALUE[attacker.piece_type] if attacker else 0
 
-            return 900_000 + victim_value * 10 - attacker_value
+            return 1_000_000 + victim_value * 10 - attacker_value
 
         if ply < MAX_PLY:
             if move == self.killers[ply][0]:
-                return 800_000
+                return 900_000
             if move == self.killers[ply][1]:
-                return 700_000
+                return 800_000
 
-        return self.history.get(
-            (board.turn, move.from_square, move.to_square), 0
-        )
+        key = (board.turn, move.from_square, move.to_square)
+        return self.history.get(key, 0)
 
-    def ordered_moves(self, board, moves, ply, tt_move=None):
+    def ordered(self, board, moves, ply, tt_move=None):
         return sorted(
             moves,
-            key=lambda move: self.move_score(
-                board, move, ply, tt_move
+            key=lambda m: self.move_order_score(
+                board, m, ply, tt_move
             ),
             reverse=True,
         )
@@ -167,14 +153,23 @@ class TinyBeast:
     def quiescence(self, board, alpha, beta, ply, qply=0):
         self.nodes += 1
 
-        if self.is_draw(board):
+        if self.draw(board):
             return 0
 
         in_check = board.is_check()
 
-        if not in_check:
+        if in_check:
+            moves = list(board.legal_moves)
+
+            if not moves:
+                return -MATE + ply
+
+        else:
+            if board.is_stalemate():
+                return 0
+
             stand_pat = self.evaluate(board)
-            if board.turn == chess.BLACK:
+            if not board.turn:
                 stand_pat = -stand_pat
 
             if stand_pat >= beta:
@@ -187,19 +182,11 @@ class TinyBeast:
                 return alpha
 
             moves = [
-                move for move in board.legal_moves
-                if board.is_capture(move) or move.promotion
+                m for m in board.legal_moves
+                if board.is_capture(m) or m.promotion
             ]
-        else:
-            # In check, search every legal escape.
-            if qply >= 12:
-                return -MATE + ply
 
-            moves = list(board.legal_moves)
-            if not moves:
-                return -MATE + ply
-
-        moves = self.ordered_moves(board, moves, ply)
+        moves = self.ordered(board, moves, ply)
 
         for move in moves:
             board.push(move)
@@ -216,29 +203,37 @@ class TinyBeast:
 
         return alpha
 
-    def search(self, board, depth, alpha, beta, ply=0):
+    def search(self, board, depth, alpha, beta, ply=0, extensions=0):
         self.nodes += 1
 
-        if self.is_draw(board):
+        if self.draw(board):
             return 0, None
+
+        if board.is_checkmate():
+            return -MATE + ply, None
 
         if ply >= MAX_PLY - 1:
             score = self.evaluate(board)
             return (score if board.turn else -score), None
 
-        if board.is_checkmate():
-            return -MATE + ply, None
+        in_check = board.is_check()
+
+        # Extend a limited number of checks to avoid missing
+        # forced defensive moves and mating attacks.
+        if in_check and extensions < 2:
+            depth += 1
+            extensions += 1
 
         if depth <= 0:
             return self.quiescence(board, alpha, beta, ply), None
 
         original_alpha = alpha
         key = board.fen()
-        tt_entry = self.tt.get(key)
+        entry = self.tt.get(key)
         tt_move = None
 
-        if tt_entry:
-            tt_depth, tt_score, tt_flag, tt_best = tt_entry
+        if entry:
+            tt_depth, tt_score, tt_flag, tt_best = entry
             tt_move = tt_best
 
             if tt_depth >= depth:
@@ -252,16 +247,21 @@ class TinyBeast:
         moves = list(board.legal_moves)
 
         if not moves:
-            return (-MATE + ply if board.is_check() else 0), None
+            return (-MATE + ply if in_check else 0), None
 
-        moves = self.ordered_moves(board, moves, ply, tt_move)
+        moves = self.ordered(board, moves, ply, tt_move)
         best_move = None
         best_score = -INF
 
         for move in moves:
             board.push(move)
             score, _ = self.search(
-                board, depth - 1, -beta, -alpha, ply + 1
+                board,
+                depth - 1,
+                -beta,
+                -alpha,
+                ply + 1,
+                extensions,
             )
             score = -score
             board.pop()
@@ -279,11 +279,13 @@ class TinyBeast:
                         self.killers[ply][1] = self.killers[ply][0]
                         self.killers[ply][0] = move
 
-                    hist_key = (
-                        board.turn, move.from_square, move.to_square
+                    hkey = (
+                        board.turn,
+                        move.from_square,
+                        move.to_square,
                     )
-                    self.history[hist_key] = (
-                        self.history.get(hist_key, 0) + depth * depth
+                    self.history[hkey] = (
+                        self.history.get(hkey, 0) + depth * depth
                     )
                 break
 
@@ -293,10 +295,7 @@ class TinyBeast:
         elif best_score >= beta:
             flag = "LOWER"
 
-        self.tt[key] = (
-            depth, best_score, flag, best_move
-        )
-
+        self.tt[key] = (depth, best_score, flag, best_move)
         return best_score, best_move
 
     def choose_move(self, board, max_depth=4):
@@ -307,8 +306,6 @@ class TinyBeast:
 
         best_move = None
 
-        # Iterative deepening: keep the best move from the last
-        # completed search depth.
         for depth in range(1, max_depth + 1):
             _, move = self.search(board, depth, -INF, INF)
 
@@ -321,10 +318,6 @@ class TinyBeast:
 def uci_loop():
     engine = TinyBeast()
     board = chess.Board()
-
-    print("id name Tiny Beast 4K", flush=True)
-    print("id author Tiny Beast", flush=True)
-    print("uciok", flush=True)
 
     while True:
         try:
@@ -352,15 +345,15 @@ def uci_loop():
 
         elif name == "position":
             try:
-                if len(parts) >= 2 and parts[1] == "startpos":
+                if parts[1] == "startpos":
                     board = chess.Board()
                     move_start = 2
 
-                elif len(parts) >= 2 and parts[1] == "fen":
-                    try:
+                elif parts[1] == "fen":
+                    if "moves" in parts:
                         move_start = parts.index("moves")
                         fen = " ".join(parts[2:move_start])
-                    except ValueError:
+                    else:
                         fen = " ".join(parts[2:])
                         move_start = len(parts)
 
@@ -369,7 +362,10 @@ def uci_loop():
                 else:
                     continue
 
-                if move_start < len(parts) and parts[move_start] == "moves":
+                if (
+                    move_start < len(parts)
+                    and parts[move_start] == "moves"
+                ):
                     for move_text in parts[move_start + 1:]:
                         board.push_uci(move_text)
 
@@ -392,9 +388,6 @@ def uci_loop():
                 print("bestmove 0000", flush=True)
             else:
                 print("bestmove", move.uci(), flush=True)
-
-        elif name == "stop":
-            continue
 
         elif name == "quit":
             break
