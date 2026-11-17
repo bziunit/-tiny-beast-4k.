@@ -1,57 +1,67 @@
+import chess
+import chess.polyglot
 
-import os,json,urllib.request
+class TinyBeast:
+    def __init__(self, depth=4):
+        self.depth = depth
 
-U=os.environ["MAKEFUN_ENV_URL"].rstrip("/")
-def post(path,data={}):
- r=urllib.request.Request(U+path,json.dumps(data).encode(),{"Content-Type":"application/json"})
- return json.loads(urllib.request.urlopen(r,timeout=9).read())
+    def evaluate(self, board):
+        if board.is_checkmate():
+            return -100000 if board.turn else 100000
 
-V={"p":100,"n":320,"b":330,"r":500,"q":900,"k":0}
+        if board.is_stalemate():
+            return 0
 
-def choose(fen,moves):
- a,turn,castle,ep,*_=fen.split()
- b=[]
- for row in a.split("/"):
-  for c in row:
-   b += ["."]*int(c) if c.isdigit() else [c]
- def val(x):
-  if x=="." : return 0
-  v=V[x.lower()]
-  return v if x.isupper() else -v
- def score(m):
-  x,y=m[:2],m[2:4]
-  i=ord(x[0])-97+(8-int(x[1]))*8
-  j=ord(y[0])-97+(8-int(y[1]))*8
-  p=b[i]; q=b[j]; s=0
-  side=1 if turn=="w" else -1
-  z=b[:]; z[j]=p; z[i]="."
-  if p.lower()=="p" and x[0]!=y[0] and q==".":
-   z[i//8*8+(j%8)]="."
-  if p.lower()=="k" and abs(i-j)==2:
-   if j>i:
-    z[j-1]=z[j+1]; z[j+1]="."
-   else:
-    z[j+1]=z[j-2]; z[j-2]="."
-  if len(m)>4:
-   z[j]=m[4].upper() if side==1 else m[4]
-  s=sum(val(c) for c in z)*side
-  for k,c in enumerate(z):
-   if c=="." : continue
-   r,col=divmod(k,8)
-   center=7-(abs(3.5-r)+abs(3.5-col))
-   adv=(6-r if c.isupper() else r-1) if c.lower()=="p" else 0
-   s+=side*(1 if c.isupper() else -1)*(center*2+adv*3)
-  if q!=".":
-   s+=V[q.lower()]*0.8
-  if p.lower()=="q" and sum(1 for c in b if c.lower()=="q")>0:
-   s-=8
-  return s
- return max(moves,key=score)
+        values = {
+            chess.PAWN: 100,
+            chess.KNIGHT: 320,
+            chess.BISHOP: 330,
+            chess.ROOK: 500,
+            chess.QUEEN: 900,
+            chess.KING: 20000
+        }
 
-while True:
- g=post("/game")
- if g.get("status")=="done":
-  break
- while g.get("status")=="your_move":
-  m=choose(g["fen"],g["legal_moves"])
-  g=post("/move",{"game":g["game"],"move":m})
+        score = 0
+        for piece_type, value in values.items():
+            score += len(board.pieces(piece_type, True)) * value
+            score -= len(board.pieces(piece_type, False)) * value
+
+        return score if board.turn else -score
+
+    def search(self, board, depth, alpha, beta):
+        if depth == 0 or board.is_game_over():
+            return self.evaluate(board), None
+
+        best_move = None
+        best_score = -float("inf")
+
+        for move in board.legal_moves:
+            board.push(move)
+            score = -self.search(
+                board, depth - 1, -beta, -alpha
+            )[0]
+            board.pop()
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+
+            alpha = max(alpha, score)
+            if alpha >= beta:
+                break
+
+        return best_score, best_move
+
+    def get_move(self, board):
+        return self.search(
+            board, self.depth,
+            -float("inf"), float("inf")
+        )[1]
+
+
+if __name__ == "__main__":
+    board = chess.Board()
+    engine = TinyBeast(depth=4)
+
+    move = engine.get_move(board)
+    print("Tiny Beast 4K:", move)
