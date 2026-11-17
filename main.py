@@ -6,6 +6,7 @@ import time
 NAME = "Tiny Beast"
 MATE = 100000
 INF = 1000000
+DEFAULT_MOVE_TIME = 0.75
 
 VALUES = {
     chess.PAWN: 100,
@@ -22,7 +23,7 @@ class TinyBeast:
         self.tt = {}
         self.nodes = 0
         self.start_time = 0
-        self.time_limit = None
+        self.time_limit = DEFAULT_MOVE_TIME
         self.stopped = False
 
     def evaluate(self, board):
@@ -115,7 +116,7 @@ class TinyBeast:
         if self.time_limit is None:
             return False
 
-        if time.time() - self.start_time >= self.time_limit:
+        if time.monotonic() - self.start_time >= self.time_limit:
             self.stopped = True
             return True
 
@@ -252,9 +253,9 @@ class TinyBeast:
 
         return best_score
 
-    def best_move(self, board, depth=4, movetime=None):
+    def best_move(self, board, depth=4, movetime=DEFAULT_MOVE_TIME):
         self.nodes = 0
-        self.start_time = time.time()
+        self.start_time = time.monotonic()
         self.time_limit = movetime
         self.stopped = False
 
@@ -266,6 +267,9 @@ class TinyBeast:
         best = legal[0]
 
         for current_depth in range(1, max(1, depth) + 1):
+            if self.time_check():
+                break
+
             self.stopped = False
             self.nodes = 0
 
@@ -293,10 +297,6 @@ class TinyBeast:
 
             if abs(score) > MATE - 100:
                 break
-
-            if self.time_limit is not None:
-                if time.time() - self.start_time >= self.time_limit:
-                    break
 
         return best
 
@@ -336,7 +336,10 @@ def uci():
                     move_start = 2
 
                 elif len(parts) >= 2 and parts[1] == "fen":
-                    fen_end = parts.index("moves") if "moves" in parts else len(parts)
+                    fen_end = (
+                        parts.index("moves")
+                        if "moves" in parts else len(parts)
+                    )
                     fen = " ".join(parts[2:fen_end])
                     board = chess.Board(fen)
                     move_start = fen_end
@@ -355,11 +358,13 @@ def uci():
 
         elif cmd == "go":
             depth = 4
-            movetime = None
+            movetime = DEFAULT_MOVE_TIME
 
             if "depth" in parts:
                 try:
-                    depth = int(parts[parts.index("depth") + 1])
+                    depth = int(
+                        parts[parts.index("depth") + 1]
+                    )
                 except (ValueError, IndexError):
                     depth = 4
 
@@ -369,7 +374,7 @@ def uci():
                         parts[parts.index("movetime") + 1]
                     ) / 1000
                 except (ValueError, IndexError):
-                    movetime = None
+                    movetime = DEFAULT_MOVE_TIME
 
             move = engine.best_move(
                 board, depth=depth, movetime=movetime
