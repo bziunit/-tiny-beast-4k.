@@ -26,7 +26,6 @@ class TinyBeast:
         self.time_limit = DEFAULT_MOVE_TIME
         self.stopped = False
 
-        # Killer moves and history heuristic
         self.killers = {}
         self.history = {}
 
@@ -50,9 +49,26 @@ class TinyBeast:
             chess.BLACK: [0] * 8,
         }
 
+        phase = 0
+
+        for piece in pieces.values():
+            if piece.piece_type == chess.QUEEN:
+                phase += 4
+            elif piece.piece_type == chess.ROOK:
+                phase += 2
+            elif piece.piece_type in (
+                chess.BISHOP,
+                chess.KNIGHT
+            ):
+                phase += 1
+
+        endgame = phase <= 10
+
+        # Material, centrum i aktywność figur
         for square, piece in pieces.items():
             color = piece.color
             sign = 1 if color == chess.WHITE else -1
+
             value = VALUES[piece.piece_type]
 
             file = chess.square_file(square)
@@ -62,17 +78,18 @@ class TinyBeast:
                 abs(3.5 - file) + abs(3.5 - rank)
             )
 
+            advance = rank if color else 7 - rank
+
             if piece.piece_type == chess.PAWN:
-                advance = rank if color else 7 - rank
                 value += advance * 8
                 value += int(center * 3)
                 pawn_files[color][file] += 1
 
             elif piece.piece_type == chess.KNIGHT:
-                value += int(center * 9)
+                value += int(center * 10)
 
             elif piece.piece_type == chess.BISHOP:
-                value += int(center * 5)
+                value += int(center * 6)
                 bishops[color] += 1
 
             elif piece.piece_type == chess.ROOK:
@@ -82,55 +99,186 @@ class TinyBeast:
                 value += int(center * 2)
 
             elif piece.piece_type == chess.KING:
-                if len(pieces) <= 12:
-                    value += int(center * 10)
+                if endgame:
+                    value += int(center * 12)
                 else:
                     value -= int(center * 5)
 
             score += sign * value
 
-        # Pawn structure
+        # Struktura pionów i aktywność wież
         for color in (chess.WHITE, chess.BLACK):
             sign = 1 if color == chess.WHITE else -1
             files = pawn_files[color]
+            enemy_files = pawn_files[not color]
 
             for file in range(8):
                 if files[file] > 1:
-                    score -= sign * 12 * (files[file] - 1)
+                    score -= sign * 14 * (files[file] - 1)
 
                 if files[file] > 0:
                     left = file > 0 and files[file - 1] > 0
                     right = file < 7 and files[file + 1] > 0
 
                     if not left and not right:
-                        score -= sign * 10 * files[file]
+                        score -= sign * 12 * files[file]
 
             if bishops[color] >= 2:
-                score += sign * 25
+                score += sign * 30
 
-        # Mobility
-        mobility = board.legal_moves.count()
+            # Wieże na otwartych i półotwartych liniach
+            for square in board.pieces(chess.ROOK, color):
+                file = chess.square_file(square)
+                rank = chess.square_rank(square)
 
-        score += (
-            mobility * 2
-            if board.turn == chess.WHITE
-            else -mobility * 2
-        )
+                if files[file] == 0:
+                    if enemy_files[file] == 0:
+                        score += sign * 20
+                    else:
+                        score += sign * 12
+
+                if (color and rank == 6) or (
+                    not color and rank == 1
+                ):
+                    score += sign * 15
+
+            # Piony połączone i przechodzące
+            own_pawns = board.pieces(chess.PAWN, color)
+            enemy_pawns = board.pieces(chess.PAWN, not color)
+
+            for square in own_pawns:
+                file = chess.square_file(square)
+                rank = chess.square_rank(square)
+
+                connected = False
+
+                for other in own_pawns:
+                    if other == square:
+                        continue
+
+                    other_file = chess.square_file(other)
+                    other_rank = chess.square_rank(other)
+
+                    if (
+                        abs(other_file - file) == 1
+                        and abs(other_rank - rank) <= 1
+                    ):
+                        connected = True
+                        break
+
+                if connected:
+                    score += sign * 8
+
+                passed = True
+
+                for enemy in enemy_pawns:
+                    enemy_file = chess.square_file(enemy)
+                    enemy_rank = chess.square_rank(enemy)
+
+                    if abs(enemy_file - file) <= 1:
+                        if color and enemy_rank > rank:
+                            passed = False
+                        elif not color and enemy_rank < rank:
+                            passed = False
+
+                if passed:
+                    bonus = [0, 5, 12, 22, 38, 60, 85, 0]
+                    index = rank if color else 7 - rank
+                    score += sign * bonus[index]
+
+        # Bezpieczeństwo króla
+        for color in (chess.WHITE, chess.BLACK):
+            sign = 1 if color == chess.WHITE else -1
+            king = board.king(color)
+
+            if king is None:
+                continue
+
+            king_file = chess.square_file(king)
+            king_rank = chess.square_rank(king)
+
+            if not endgame:
+                shield_rank = king_rank + (1 if color else -1)
+
+                if 0 <= shield_rank <= 7:
+                    for file in range(
+                        max(0, king_file - 1),
+                        min(7, king_file + 1) + 1
+                    ):
+                        shield_square = chess.square(
+                            file, shield_rank
+                        )
+
+                        if board.piece_at(shield_square) == chess.Piece(
+                            chess.PAWN, color
+                        ):
+                            score += sign * 10
+
+                for file in range(
+                    max(0, king_file - 1),
+                    min(7, king_file + 1) + 1
+                ):
+                    if pawn_files[color][file] == 0:
+                        score -= sign * 10
+
+                danger = 0
+
+                for df in (-1, 0, 1):
+                    for dr in (-1, 0, 1):
+                        if df == 0 and dr == 0:
+                            continue
+
+                        f = king_file + df
+                        r = king_rank + dr
+
+                        if 0 <= f <= 7 and 0 <= r <= 7:
+                            square = chess.square(f, r)
+
+                            if board.is_attacked_by(
+                                not color, square
+                            ):
+                                danger += 1
+
+                score -= sign * min(40, danger * 7)
+
+        # Kary za atakowane i słabo bronione figury
+        for square, piece in pieces.items():
+            if piece.piece_type == chess.KING:
+                continue
+
+            color = piece.color
+            sign = 1 if color == chess.WHITE else -1
+
+            attackers = len(
+                board.attackers(not color, square)
+            )
+
+            defenders = len(
+                board.attackers(color, square)
+            )
+
+            if attackers > 0:
+                value = VALUES[piece.piece_type]
+
+                if defenders == 0:
+                    penalty = min(80, int(value * 0.18))
+                    score -= sign * penalty
+
+                elif attackers > defenders:
+                    penalty = min(55, int(value * 0.10))
+                    score -= sign * penalty
 
         return score if board.turn == chess.WHITE else -score
 
     def move_score(self, board, move, tt_move=None, ply=0):
-        # Transposition table move first
         if move == tt_move:
             return 2000000
 
         score = 0
 
-        # Promotions
         if move.promotion:
             score += 1000000 + VALUES[move.promotion]
 
-        # Captures: most valuable victim / least valuable attacker
         if board.is_capture(move):
             victim = board.piece_at(move.to_square)
             attacker = board.piece_at(move.from_square)
@@ -154,13 +302,11 @@ class TinyBeast:
 
             return score
 
-        # Killer moves
         killers = self.killers.get(ply, [])
 
         if move in killers:
             score += 400000 - killers.index(move) * 10000
 
-        # History heuristic
         history_key = (
             board.turn,
             move.from_square,
@@ -347,7 +493,6 @@ class TinyBeast:
 
             alpha = max(alpha, score)
 
-            # Learn from quiet moves that cause a cutoff
             if alpha >= beta:
                 if quiet:
                     self.record_killer(move, ply)
