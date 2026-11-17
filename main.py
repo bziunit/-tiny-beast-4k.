@@ -18,6 +18,8 @@ class TinyBeast:
         self.depth = depth
         self.nodes = 0
         self.tt = {}
+        self.killers = {}
+        self.history = {}
 
     def evaluate(self):
         if self.board.is_checkmate():
@@ -64,35 +66,48 @@ class TinyBeast:
 
         return score if self.board.turn else -score
 
-    def move_score(self, move):
-        score = 0
+    def move_score(self, move, ply, tt_move=None):
+        if move == tt_move:
+            return 10000000
 
         if self.board.is_capture(move):
             victim = self.board.piece_at(move.to_square)
 
             if victim is None and self.board.is_en_passant(move):
-                score += 100
+                victim_value = PIECE_VALUES[chess.PAWN]
             elif victim is not None:
-                attacker = self.board.piece_at(move.from_square)
-                score += (
-                    10 * PIECE_VALUES[victim.piece_type]
-                    - PIECE_VALUES[attacker.piece_type]
-                )
+                victim_value = PIECE_VALUES[victim.piece_type]
+            else:
+                victim_value = 0
+
+            attacker = self.board.piece_at(move.from_square)
+            attacker_value = PIECE_VALUES[attacker.piece_type]
+
+            return 1000000 + 10 * victim_value - attacker_value
 
         if move.promotion:
-            score += PIECE_VALUES[move.promotion]
+            return 900000 + PIECE_VALUES[move.promotion]
 
-        return score
+        killer_moves = self.killers.get(ply, [])
 
-    def alphabeta(self, depth, alpha, beta):
+        if move in killer_moves:
+            return 800000 - killer_moves.index(move)
+
+        return self.history.get(
+            (self.board.turn, move.from_square, move.to_square),
+            0
+        )
+
+    def alphabeta(self, depth, alpha, beta, ply=0):
         self.nodes += 1
 
         if depth == 0 or self.board.is_game_over():
             return self.evaluate()
 
         original_alpha = alpha
-        key = self.board.fen()
+        original_beta = beta
 
+        key = self.board.fen()
         entry = self.tt.get(key)
         tt_move = None
 
@@ -116,24 +131,26 @@ class TinyBeast:
         moves = list(self.board.legal_moves)
 
         moves.sort(
-            key=self.move_score,
+            key=lambda move: self.move_score(
+                move, ply, tt_move
+            ),
             reverse=True
         )
-
-        if tt_move in moves:
-            moves.remove(tt_move)
-            moves.insert(0, tt_move)
 
         best = -float("inf")
         best_move = None
 
         for move in moves:
+            is_capture = self.board.is_capture(move)
+            moving_color = self.board.turn
+
             self.board.push(move)
 
             score = -self.alphabeta(
                 depth - 1,
                 -beta,
-                -alpha
+                -alpha,
+                ply + 1
             )
 
             self.board.pop()
@@ -145,11 +162,30 @@ class TinyBeast:
             alpha = max(alpha, score)
 
             if alpha >= beta:
+                if not is_capture and not move.promotion:
+                    killers = self.killers.setdefault(ply, [])
+
+                    if move not in killers:
+                        killers.insert(0, move)
+                        if len(killers) > 2:
+                            killers.pop()
+
+                    history_key = (
+                        moving_color,
+                        move.from_square,
+                        move.to_square
+                    )
+
+                    self.history[history_key] = (
+                        self.history.get(history_key, 0)
+                        + depth * depth
+                    )
+
                 break
 
         if best <= original_alpha:
             flag = "UPPER"
-        elif best >= beta:
+        elif best >= original_beta:
             flag = "LOWER"
         else:
             flag = "EXACT"
@@ -167,6 +203,8 @@ class TinyBeast:
         best_move = None
         self.nodes = 0
         self.tt.clear()
+        self.killers.clear()
+        self.history.clear()
 
         for current_depth in range(1, self.depth + 1):
             best_score = -float("inf")
@@ -174,8 +212,11 @@ class TinyBeast:
             beta = float("inf")
 
             moves = list(self.board.legal_moves)
+
             moves.sort(
-                key=self.move_score,
+                key=lambda move: self.move_score(
+                    move, 0
+                ),
                 reverse=True
             )
 
@@ -185,7 +226,8 @@ class TinyBeast:
                 score = -self.alphabeta(
                     current_depth - 1,
                     -beta,
-                    -alpha
+                    -alpha,
+                    1
                 )
 
                 self.board.pop()
@@ -216,6 +258,8 @@ def uci():
         elif command == "ucinewgame":
             engine.board.reset()
             engine.tt.clear()
+            engine.killers.clear()
+            engine.history.clear()
 
         elif command.startswith("position"):
             parts = command.split()
@@ -267,3 +311,6 @@ if __name__ == "__main__":
         print("Tiny Beast:", move)
         print("Nodes:", engine.nodes)
         print("Zapamiętane pozycje:", len(engine.tt))
+        print("Killer moves:", sum(
+            len(moves) for moves in engine.killers.values()
+        ))
