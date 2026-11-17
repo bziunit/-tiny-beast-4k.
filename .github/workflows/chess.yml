@@ -85,3 +85,5 @@ jobs:
 
           print("UCI TEST OK")
           PY
+      - name: Run benchmark
+        run: python main.py --benchmark
