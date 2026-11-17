@@ -1,17 +1,12 @@
 import chess
-import chess.polyglot
+import chess.engine
+import random
 
 class TinyBeast:
-    def __init__(self, depth=4):
-        self.depth = depth
+    def __init__(self):
+        self.board = chess.Board()
 
-    def evaluate(self, board):
-        if board.is_checkmate():
-            return -100000 if board.turn else 100000
-
-        if board.is_stalemate():
-            return 0
-
+    def evaluate(self):
         values = {
             chess.PAWN: 100,
             chess.KNIGHT: 320,
@@ -23,45 +18,38 @@ class TinyBeast:
 
         score = 0
         for piece_type, value in values.items():
-            score += len(board.pieces(piece_type, True)) * value
-            score -= len(board.pieces(piece_type, False)) * value
+            score += len(self.board.pieces(piece_type, chess.WHITE)) * value
+            score -= len(self.board.pieces(piece_type, chess.BLACK)) * value
 
-        return score if board.turn else -score
+        return score if self.board.turn else -score
 
-    def search(self, board, depth, alpha, beta):
-        if depth == 0 or board.is_game_over():
-            return self.evaluate(board), None
+    def choose_move(self):
+        moves = list(self.board.legal_moves)
+
+        if not moves:
+            return None
 
         best_move = None
         best_score = -float("inf")
 
-        for move in board.legal_moves:
-            board.push(move)
-            score = -self.search(
-                board, depth - 1, -beta, -alpha
-            )[0]
-            board.pop()
+        for move in moves:
+            self.board.push(move)
+            score = -self.evaluate()
+            self.board.pop()
 
             if score > best_score:
                 best_score = score
                 best_move = move
 
-            alpha = max(alpha, score)
-            if alpha >= beta:
-                break
-
-        return best_score, best_move
-
-    def get_move(self, board):
-        return self.search(
-            board, self.depth,
-            -float("inf"), float("inf")
-        )[1]
-
+        return best_move
 
 if __name__ == "__main__":
-    board = chess.Board()
-    engine = TinyBeast(depth=4)
+    engine = TinyBeast()
 
-    move = engine.get_move(board)
-    print("Tiny Beast 4K:", move)
+    while not engine.board.is_game_over():
+        move = engine.choose_move()
+        if move is None:
+            break
+
+        print("Tiny Beast:", move)
+        engine.board.push(move)
