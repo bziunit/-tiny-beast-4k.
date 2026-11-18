@@ -14,6 +14,7 @@ on:
       - "move_check.py"
       - "move_check_white.py"
       - "position_test.py"
+      - "pawn_strategy_test.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
@@ -56,3 +57,6 @@ jobs:
 
       - name: Test Tiny Beast move selection
         run: python position_test.py
+
+      - name: Test pawn strategy in 10 positions
+        run: python pawn_strategy_test.py
