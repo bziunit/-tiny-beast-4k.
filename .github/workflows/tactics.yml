@@ -15,6 +15,7 @@ on:
       - "move_check_white.py"
       - "position_test.py"
       - "pawn_strategy_test.py"
+      - "targeted_diagnostic.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
@@ -60,3 +61,6 @@ jobs:
 
       - name: Test pawn strategy in 10 positions
         run: python pawn_strategy_test.py
+
+      - name: Analyze two critical match positions
+        run: python targeted_diagnostic.py
