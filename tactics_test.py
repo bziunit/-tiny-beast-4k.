@@ -1,6 +1,7 @@
 
 import chess
 import chess.engine
+import time
 
 from main import TinyBeast
 
@@ -127,8 +128,6 @@ def forced_mate_in_two(board):
         for reply in replies:
             board.push(reply)
 
-            # Jeśli nasza odpowiedź sama daje mata,
-            # przeciwnik nie ma wymuszonego mata.
             if board.is_checkmate():
                 every_reply_loses = False
                 board.pop()
@@ -214,7 +213,7 @@ def main():
     )
 
     try:
-        print("========== TINY BEAST TACTICAL TEST 2 ==========")
+        print("========== TINY BEAST TACTICAL COST TEST ==========")
 
         for name, moves_text in POSITIONS:
             print()
@@ -231,13 +230,19 @@ def main():
             )
 
             legal = list(board.legal_moves)
+
+            start = time.perf_counter()
             safe = safe_moves(board)
+            elapsed = time.perf_counter() - start
 
             print("Legalne ruchy:", len(legal))
             print("Bezpieczne ruchy:", len(safe))
             print(
                 "Lista bezpiecznych:",
                 describe_moves(board, safe)
+            )
+            print(
+                f"Czas sprawdzania mata w 1 i 2: {elapsed:.3f} s"
             )
 
             tiny_move = engine.best_move(
