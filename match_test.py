@@ -4,8 +4,8 @@ import chess.engine
 import sys
 
 GAMES = 20
-DEPTH = 3
-MOVE_TIME = 0.5
+DEPTH = 4
+MOVE_TIME = 1.5
 MAX_MOVES = 100
 
 OPENINGS = [
