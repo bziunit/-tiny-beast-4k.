@@ -11,6 +11,7 @@ on:
       - "tactics_test.py"
       - "loss_diagnostic.py"
       - "blunder_scan.py"
+      - "move_check.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
@@ -44,3 +45,6 @@ jobs:
 
       - name: Scan blunders in lost games
         run: python blunder_scan.py
+
+      - name: Analyze Ruy Lopez move 12 Nb4
+        run: python move_check.py
