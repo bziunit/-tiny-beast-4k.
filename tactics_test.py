@@ -5,7 +5,7 @@ import chess.engine
 from main import TinyBeast
 
 
-MOVE_TIME = 0.75
+MOVE_TIME = 3.0
 STOCKFISH_DEPTH = 10
 
 POSITIONS = [
