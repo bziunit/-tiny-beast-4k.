@@ -362,14 +362,16 @@ class TinyBeast:
     def quiescence(self, board, alpha, beta, ply, qply=0):
         self.nodes += 1
 
-        if self.time_check():
-            return self.evaluate(board)
-
+        # Najpierw rozpoznajemy pozycje końcowe.
         if board.is_checkmate():
             return -MATE + ply
 
         if board.is_stalemate() or board.is_insufficient_material():
             return 0
+
+        # Dopiero potem sprawdzamy limit czasu.
+        if self.time_check():
+            return self.evaluate(board)
 
         in_check = board.is_check()
 
@@ -425,9 +427,7 @@ class TinyBeast:
     def search(self, board, depth, alpha, beta, ply=0):
         self.nodes += 1
 
-        if self.time_check():
-            return self.evaluate(board)
-
+        # Najpierw rozpoznajemy pozycje końcowe.
         if board.is_checkmate():
             return -MATE + ply
 
@@ -436,6 +436,10 @@ class TinyBeast:
 
         if board.is_repetition(3):
             return 0
+
+        # Dopiero potem sprawdzamy limit czasu.
+        if self.time_check():
+            return self.evaluate(board)
 
         if depth <= 0:
             return self.quiescence(
