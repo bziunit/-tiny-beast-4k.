@@ -67,6 +67,23 @@ def immediate_mates(board):
     return mates
 
 
+def safe_moves(board):
+    safe = []
+
+    for move in list(board.legal_moves):
+        san = board.san(move)
+        board.push(move)
+
+        opponent_mates = immediate_mates(board)
+
+        board.pop()
+
+        if not opponent_mates:
+            safe.append(san)
+
+    return safe
+
+
 def test_move(board, move):
     if move is None or move not in board.legal_moves:
         return "INVALID", "INVALID"
@@ -100,6 +117,19 @@ def main():
                 "White" if board.turn else "Black"
             )
 
+            safe = safe_moves(board)
+
+            print("\nSAFE MOVES:", len(safe))
+
+            if safe:
+                print(", ".join(safe))
+            else:
+                print(
+                    "Brak ruchu, który zapobiega matowi "
+                    "w jednym ruchu — pozycja może być "
+                    "już przegrana"
+                )
+
             tiny_move = tiny.best_move(
                 board.copy(),
                 depth=4,
@@ -125,20 +155,28 @@ def main():
                 board, sf_move
             )
 
-            print("Tiny Beast:", tiny_san)
+            print("\nTiny Beast:", tiny_san)
             print(
                 "Mate in one after Tiny Beast:",
                 tiny_danger
             )
+            print(
+                "Tiny Beast chooses safe move:",
+                "YES" if tiny_san in safe else "NO"
+            )
 
-            print("Stockfish:", sf_san)
+            print("\nStockfish:", sf_san)
             print(
                 "Mate in one after Stockfish:",
                 sf_danger
             )
+            print(
+                "Stockfish chooses safe move:",
+                "YES" if sf_san in safe else "NO"
+            )
 
             print(
-                "Same move:",
+                "\nSame move:",
                 "YES" if tiny_move == sf_move else "NO"
             )
 
