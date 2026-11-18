@@ -1,0 +1,38 @@
+
+name: Tiny Beast Piece Safety Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "main.py"
+      - "piece_safety_test.py"
+      - "requirements.txt"
+      - ".github/workflows/piece_safety.yml"
+
+jobs:
+  piece-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+
+      - name: Run piece safety test
+        run: python piece_safety_test.py
