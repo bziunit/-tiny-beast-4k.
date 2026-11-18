@@ -1,4 +1,3 @@
-
 name: Tiny Beast Tactical Diagnostic
 
 on:
@@ -9,13 +8,14 @@ on:
     paths:
       - "main.py"
       - "tactics_test.py"
+      - "loss_diagnostic.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
 jobs:
   tactics:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -34,5 +34,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y stockfish
 
-      - name: Run tactical diagnostic
+      - name: Run existing tactical diagnostic
         run: python tactics_test.py
+
+      - name: Run lost games diagnostic
+        run: python loss_diagnostic.py
