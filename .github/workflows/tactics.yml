@@ -1,0 +1,38 @@
+
+name: Tiny Beast Tactical Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "main.py"
+      - "tactics_test.py"
+      - "requirements.txt"
+      - ".github/workflows/tactics.yml"
+
+jobs:
+  tactics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+
+      - name: Run tactical diagnostic
+        run: python tactics_test.py
