@@ -1,21 +1,12 @@
-name: Tiny Beast Tactical Diagnostic
+
+name: Tiny Beast 4K Benchmark
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "main.py"
-      - "tactics_test.py"
-      - "loss_diagnostic.py"
-      - "requirements.txt"
-      - ".github/workflows/tactics.yml"
 
 jobs:
-  tactics:
+  benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -26,16 +17,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Install Stockfish
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y stockfish
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run existing tactical diagnostic
-        run: python tactics_test.py
-
-      - name: Run lost games diagnostic
-        run: python loss_diagnostic.py
+      - name: Run benchmark
+        run: python benchmark.py
