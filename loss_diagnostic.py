@@ -67,7 +67,7 @@ POSITIONS = [
     (
         "RETI",
         """
-        Nf3 d5 Nf3 Nf6 d4 e6 c4 e6 e3 Nbd7 Nc3 c5 Be2 cxd4
+        Nf3 d5 d4 Nf6 c4 e6 e3 Nbd7 Nc3 c5 Be2 cxd4
         exd4 dxc4 Bxc4 Nb6 Ne5 Nxc4 Nxc4 Bd6 Qa4+ Kf8
         Nxd6 Qxd6 b3 Qc6 Qxc6 bxc6 Ba3+ Kg8 Kd2 Ba6
         Bc5 h5 h4 g6 Be7 Nd7 Ne4 Nb6 Bf6 Rh6 Rac1 Rc8
@@ -97,36 +97,37 @@ def build_position(name, moves_text):
 
 
 def score_after_move(engine, board, move):
-    if move not in board.legal_moves:
-        return None, []
+    if move is None or move not in board.legal_moves:
+        return None
 
     after = board.copy()
     after.push(move)
-
-    mates = []
-    for reply in list(after.legal_moves):
-        after.push(reply)
-        if after.is_checkmate():
-            mates.append(reply)
-        after.pop()
 
     info = engine.analyse(
         after,
         chess.engine.Limit(depth=STOCKFISH_DEPTH)
     )
 
-    score = info["score"].pov(board.turn).score(
-        mate_score=100000
-    )
-
-    return score, mates
+    return info["score"].pov(board.turn)
 
 
 def describe_score(score):
     if score is None:
         return "brak oceny"
 
-    return f"{score / 100:+.2f}"
+    mate = score.mate()
+
+    if mate is not None:
+        if mate > 0:
+            return f"wygrana przez mata za {mate} ruchów"
+        return f"przegrana przez mata za {abs(mate)} ruchów"
+
+    cp = score.score()
+
+    if cp is None:
+        return "brak oceny"
+
+    return f"{cp / 100:+.2f} p"
 
 
 def analyze_position(name, final_board, tiny, stockfish):
@@ -137,9 +138,7 @@ def analyze_position(name, final_board, tiny, stockfish):
 
     final_fen = board.fen()
 
-    # Cofamy się przez ostatni ruch przeciwnika
-    # i wcześniejszy ruch strony, która popełniła błąd.
-    opponent_check = board.pop()
+    opponent_move = board.pop()
     historical_move = board.pop()
 
     if historical_move not in board.legal_moves:
@@ -148,18 +147,23 @@ def analyze_position(name, final_board, tiny, stockfish):
             f"po cofnięciu: {historical_move}"
         )
 
+    after_historical = board.copy()
+    historical_san = board.san(historical_move)
+    after_historical.push(historical_move)
+    opponent_san = after_historical.san(opponent_move)
+
     print()
     print("=" * 65)
     print(name)
     print("=" * 65)
-    print("FEN końcowej, już przegranej pozycji:", final_fen)
+    print("FEN końcowej pozycji:", final_fen)
     print("FEN przed podejrzanym ruchem:", board.fen())
     print(
         "Strona na ruchu:",
         "White" if board.turn == chess.WHITE else "Black"
     )
-    print("Historyczny ruch:", board.san(historical_move))
-    print("Następny ruch przeciwnika:", opponent_check)
+    print("Historyczny ruch:", historical_san)
+    print("Następny ruch przeciwnika:", opponent_san)
     print("Liczba legalnych ruchów:", board.legal_moves.count())
 
     tiny_move = tiny.best_move(
@@ -186,24 +190,16 @@ def analyze_position(name, final_board, tiny, stockfish):
             print(label, ": brak legalnego ruchu")
             continue
 
-        san = board.san(move)
-        score, mates = score_after_move(stockfish, board, move)
-
         print(label)
-        print("  Ruch:", san)
-        print("  Ocena Stockfish po ruchu:", describe_score(score))
+        print("  Ruch:", board.san(move))
 
-        if mates:
-            print(
-                "  Natychmiastowy mat przeciwnika:",
-                ", ".join(str(m) for m in mates)
-            )
-        else:
-            print("  Natychmiastowy mat przeciwnika: brak")
+        score = score_after_move(stockfish, board, move)
+        print("  Ocena Stockfish:", describe_score(score))
 
 
 def main():
     tiny = TinyBeast()
+
     stockfish = chess.engine.SimpleEngine.popen_uci(
         STOCKFISH_PATH
     )
@@ -213,6 +209,7 @@ def main():
 
         for name, moves_text in POSITIONS:
             final_board = build_position(name, moves_text)
+
             analyze_position(
                 name,
                 final_board,
