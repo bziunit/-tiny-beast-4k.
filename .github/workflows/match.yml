@@ -1,37 +1,38 @@
 
-name: Tiny Beast vs Stockfish
+name: Tiny Beast Full Match Test
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
-      - 'main.py'
-      - 'match_test.py'
-      - 'requirements.txt'
-      - '.github/workflows/match.yml'
+      - "main.py"
+      - "match_test.py"
+      - "requirements.txt"
+      - ".github/workflows/match.yml"
 
 jobs:
   match:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
 
       - name: Install Stockfish
         run: |
           sudo apt-get update
           sudo apt-get install -y stockfish
 
-      - name: Run match
-        run: |
-          python match_test.py
+      - name: Run 20 full games
+        run: python match_test.py
