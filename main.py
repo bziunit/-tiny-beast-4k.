@@ -25,6 +25,7 @@ class TinyBeast:
         self.start_time = 0
         self.time_limit = DEFAULT_MOVE_TIME
         self.stopped = False
+        self.safety_time = 0.0
 
         self.killers = {}
         self.history = {}
@@ -359,29 +360,70 @@ class TinyBeast:
 
         return False
 
-    # Odrzuca ruchy, po których przeciwnik ma natychmiastowego mata.
+    # Sprawdza, czy przeciwnik ma mata w jednym ruchu.
+    def opponent_has_mate_in_one(self, board):
+        for move in list(board.legal_moves):
+            board.push(move)
+            is_mate = board.is_checkmate()
+            board.pop()
+
+            if is_mate:
+                return True
+
+        return False
+
+    # Odrzuca ruchy pozwalające przeciwnikowi na mata
+    # w jednym ruchu albo wymuszonego mata w dwóch.
     def safe_root_moves(self, board, legal_moves):
         safe = []
 
         for move in legal_moves:
             board.push(move)
 
-            opponent_can_mate = False
+            opponent_can_force_mate = False
 
             for reply in list(board.legal_moves):
                 board.push(reply)
 
+                # Bezpośredni mat przeciwnika.
                 if board.is_checkmate():
-                    opponent_can_mate = True
+                    opponent_can_force_mate = True
+                    board.pop()
+                    break
+
+                our_replies = list(board.legal_moves)
+
+                # Pat nie jest matem.
+                if not our_replies:
+                    board.pop()
+                    continue
+
+                # Sprawdzamy, czy każda nasza odpowiedź
+                # pozwala przeciwnikowi zamatować w następnym ruchu.
+                every_reply_allows_mate = True
+
+                for our_reply in our_replies:
+                    board.push(our_reply)
+
+                    opponent_has_mate = (
+                        self.opponent_has_mate_in_one(board)
+                    )
+
+                    board.pop()
+
+                    if not opponent_has_mate:
+                        every_reply_allows_mate = False
+                        break
 
                 board.pop()
 
-                if opponent_can_mate:
+                if every_reply_allows_mate:
+                    opponent_can_force_mate = True
                     break
 
             board.pop()
 
-            if not opponent_can_mate:
+            if not opponent_can_force_mate:
                 safe.append(move)
 
         return safe
@@ -573,11 +615,26 @@ class TinyBeast:
         if not legal:
             return None
 
-        # Najpierw sprawdzamy bezpieczeństwo wszystkich ruchów.
+        # Mierzymy czas filtra osobno.
+        safety_start = time.monotonic()
+
+        # Sprawdzamy bezpieczeństwo wszystkich ruchów.
         safe = self.safe_root_moves(board, legal)
+
+        self.safety_time = time.monotonic() - safety_start
 
         # Jeśli nie ma bezpiecznej odpowiedzi, nie blokujemy gry.
         root_moves = safe if safe else legal
+
+        print(
+            "info string safety_filter_time",
+            f"{self.safety_time:.3f}",
+            "safe_moves",
+            len(safe),
+            "legal_moves",
+            len(legal),
+            flush=True
+        )
 
         best = root_moves[0]
 
