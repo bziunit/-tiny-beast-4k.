@@ -359,6 +359,33 @@ class TinyBeast:
 
         return False
 
+    # Odrzuca ruchy, po których przeciwnik ma natychmiastowego mata.
+    def safe_root_moves(self, board, legal_moves):
+        safe = []
+
+        for move in legal_moves:
+            board.push(move)
+
+            opponent_can_mate = False
+
+            for reply in list(board.legal_moves):
+                board.push(reply)
+
+                if board.is_checkmate():
+                    opponent_can_mate = True
+
+                board.pop()
+
+                if opponent_can_mate:
+                    break
+
+            board.pop()
+
+            if not opponent_can_mate:
+                safe.append(move)
+
+        return safe
+
     def quiescence(self, board, alpha, beta, ply, qply=0):
         self.nodes += 1
 
@@ -424,7 +451,10 @@ class TinyBeast:
 
         return alpha
 
-    def search(self, board, depth, alpha, beta, ply=0):
+    def search(
+        self, board, depth, alpha, beta,
+        ply=0, root_moves=None
+    ):
         self.nodes += 1
 
         # Najpierw rozpoznajemy pozycje końcowe.
@@ -454,7 +484,9 @@ class TinyBeast:
         if tt_entry:
             tt_depth, tt_score, tt_flag, tt_move = tt_entry
 
-            if tt_depth >= depth:
+            # Na poziomie głównym nie używamy skrótu TT,
+            # który mógłby ominąć kontrolę bezpiecznych ruchów.
+            if ply > 0 and tt_depth >= depth:
                 if tt_flag == "EXACT":
                     return tt_score
 
@@ -468,6 +500,13 @@ class TinyBeast:
         best_move = None
 
         moves = self.ordered_moves(board, tt_move, ply)
+
+        # Ograniczenie dotyczy wyłącznie ruchu głównego.
+        if ply == 0 and root_moves is not None:
+            moves = [
+                move for move in moves
+                if move in root_moves
+            ]
 
         if not moves:
             return -MATE + ply if board.is_check() else 0
@@ -527,8 +566,6 @@ class TinyBeast:
 
     def best_move(self, board, depth=4, movetime=DEFAULT_MOVE_TIME):
         self.nodes = 0
-        self.start_time = time.monotonic()
-        self.time_limit = movetime
         self.stopped = False
 
         legal = list(board.legal_moves)
@@ -536,7 +573,16 @@ class TinyBeast:
         if not legal:
             return None
 
-        best = legal[0]
+        # Najpierw sprawdzamy bezpieczeństwo wszystkich ruchów.
+        safe = self.safe_root_moves(board, legal)
+
+        # Jeśli nie ma bezpiecznej odpowiedzi, nie blokujemy gry.
+        root_moves = safe if safe else legal
+
+        best = root_moves[0]
+
+        self.start_time = time.monotonic()
+        self.time_limit = movetime
 
         for current_depth in range(1, max(1, depth) + 1):
             if self.time_check():
@@ -549,7 +595,8 @@ class TinyBeast:
                 board,
                 current_depth,
                 -INF,
-                INF
+                INF,
+                root_moves=root_moves
             )
 
             if self.stopped:
@@ -557,7 +604,7 @@ class TinyBeast:
 
             entry = self.tt.get(board.fen())
 
-            if entry and entry[3] in legal:
+            if entry and entry[3] in root_moves:
                 best = entry[3]
 
             print(
