@@ -1,740 +1,249 @@
 
 import chess
-import sys
-import time
-
-NAME = "Tiny Beast"
-MATE = 100000
-INF = 1000000
-DEFAULT_MOVE_TIME = 0.75
-
-VALUES = {
-    chess.PAWN: 100,
-    chess.KNIGHT: 320,
-    chess.BISHOP: 335,
-    chess.ROOK: 500,
-    chess.QUEEN: 900,
-    chess.KING: 0,
-}
-
-
-class TinyBeast:
-    def __init__(self):
-        self.tt = {}
-        self.nodes = 0
-        self.start_time = 0
-        self.time_limit = DEFAULT_MOVE_TIME
-        self.stopped = False
-
-        self.killers = {}
-        self.history = {}
-
-    def evaluate(self, board):
-        if board.is_checkmate():
-            return -MATE
-
-        if board.is_stalemate() or board.is_insufficient_material():
-            return 0
-
-        score = 0
-        pieces = board.piece_map()
-
-        bishops = {
-            chess.WHITE: 0,
-            chess.BLACK: 0,
-        }
-
-        pawn_files = {
-            chess.WHITE: [0] * 8,
-            chess.BLACK: [0] * 8,
-        }
-
-        phase = 0
-
-        for piece in pieces.values():
-            if piece.piece_type == chess.QUEEN:
-                phase += 4
-            elif piece.piece_type == chess.ROOK:
-                phase += 2
-            elif piece.piece_type in (
-                chess.BISHOP,
-                chess.KNIGHT
-            ):
-                phase += 1
-
-        endgame = phase <= 10
-
-        # Material, centrum i aktywność figur
-        for square, piece in pieces.items():
-            color = piece.color
-            sign = 1 if color == chess.WHITE else -1
-
-            value = VALUES[piece.piece_type]
-
-            file = chess.square_file(square)
-            rank = chess.square_rank(square)
-
-            center = 7 - (
-                abs(3.5 - file) + abs(3.5 - rank)
-            )
-
-            advance = rank if color else 7 - rank
-
-            if piece.piece_type == chess.PAWN:
-                value += advance * 8
-                value += int(center * 3)
-                pawn_files[color][file] += 1
-
-            elif piece.piece_type == chess.KNIGHT:
-                value += int(center * 10)
-
-            elif piece.piece_type == chess.BISHOP:
-                value += int(center * 6)
-                bishops[color] += 1
-
-            elif piece.piece_type == chess.ROOK:
-                value += int(center * 2)
-
-            elif piece.piece_type == chess.QUEEN:
-                value += int(center * 2)
-
-            elif piece.piece_type == chess.KING:
-                if endgame:
-                    value += int(center * 12)
-                else:
-                    value -= int(center * 5)
-
-            score += sign * value
-
-        # Struktura pionów i aktywność wież
-        for color in (chess.WHITE, chess.BLACK):
-            sign = 1 if color == chess.WHITE else -1
-            files = pawn_files[color]
-            enemy_files = pawn_files[not color]
-
-            for file in range(8):
-                if files[file] > 1:
-                    score -= sign * 14 * (files[file] - 1)
-
-                if files[file] > 0:
-                    left = file > 0 and files[file - 1] > 0
-                    right = file < 7 and files[file + 1] > 0
-
-                    if not left and not right:
-                        score -= sign * 12 * files[file]
-
-            if bishops[color] >= 2:
-                score += sign * 30
-
-            # Wieże na otwartych i półotwartych liniach
-            for square in board.pieces(chess.ROOK, color):
-                file = chess.square_file(square)
-                rank = chess.square_rank(square)
-
-                if files[file] == 0:
-                    if enemy_files[file] == 0:
-                        score += sign * 20
-                    else:
-                        score += sign * 12
-
-                if (color and rank == 6) or (
-                    not color and rank == 1
-                ):
-                    score += sign * 15
-
-            # Piony połączone i przechodzące
-            own_pawns = board.pieces(chess.PAWN, color)
-            enemy_pawns = board.pieces(chess.PAWN, not color)
-
-            for square in own_pawns:
-                file = chess.square_file(square)
-                rank = chess.square_rank(square)
-
-                connected = False
-
-                for other in own_pawns:
-                    if other == square:
-                        continue
-
-                    other_file = chess.square_file(other)
-                    other_rank = chess.square_rank(other)
-
-                    if (
-                        abs(other_file - file) == 1
-                        and abs(other_rank - rank) <= 1
-                    ):
-                        connected = True
-                        break
-
-                if connected:
-                    score += sign * 8
-
-                passed = True
-
-                for enemy in enemy_pawns:
-                    enemy_file = chess.square_file(enemy)
-                    enemy_rank = chess.square_rank(enemy)
-
-                    if abs(enemy_file - file) <= 1:
-                        if color and enemy_rank > rank:
-                            passed = False
-                        elif not color and enemy_rank < rank:
-                            passed = False
-
-                if passed:
-                    bonus = [0, 5, 12, 22, 38, 60, 85, 0]
-                    index = rank if color else 7 - rank
-                    score += sign * bonus[index]
-
-        # Bezpieczeństwo króla
-        for color in (chess.WHITE, chess.BLACK):
-            sign = 1 if color == chess.WHITE else -1
-            king = board.king(color)
-
-            if king is None:
-                continue
-
-            king_file = chess.square_file(king)
-            king_rank = chess.square_rank(king)
-
-            if not endgame:
-                shield_rank = king_rank + (1 if color else -1)
-
-                if 0 <= shield_rank <= 7:
-                    for file in range(
-                        max(0, king_file - 1),
-                        min(7, king_file + 1) + 1
-                    ):
-                        shield_square = chess.square(
-                            file, shield_rank
-                        )
-
-                        if board.piece_at(shield_square) == chess.Piece(
-                            chess.PAWN, color
-                        ):
-                            score += sign * 10
-
-                for file in range(
-                    max(0, king_file - 1),
-                    min(7, king_file + 1) + 1
-                ):
-                    if pawn_files[color][file] == 0:
-                        score -= sign * 10
-
-                danger = 0
-
-                for df in (-1, 0, 1):
-                    for dr in (-1, 0, 1):
-                        if df == 0 and dr == 0:
-                            continue
-
-                        f = king_file + df
-                        r = king_rank + dr
-
-                        if 0 <= f <= 7 and 0 <= r <= 7:
-                            square = chess.square(f, r)
-
-                            if board.is_attacked_by(
-                                not color, square
-                            ):
-                                danger += 1
-
-                score -= sign * min(40, danger * 7)
-
-        # Kary za atakowane i słabo bronione figury
-        for square, piece in pieces.items():
-            if piece.piece_type == chess.KING:
-                continue
-
-            color = piece.color
-            sign = 1 if color == chess.WHITE else -1
-
-            attackers = len(
-                board.attackers(not color, square)
-            )
-
-            defenders = len(
-                board.attackers(color, square)
-            )
-
-            if attackers > 0:
-                value = VALUES[piece.piece_type]
-
-                if defenders == 0:
-                    penalty = min(80, int(value * 0.18))
-                    score -= sign * penalty
-
-                elif attackers > defenders:
-                    penalty = min(55, int(value * 0.10))
-                    score -= sign * penalty
-
-        return score if board.turn == chess.WHITE else -score
-
-    def move_score(self, board, move, tt_move=None, ply=0):
-        if move == tt_move:
-            return 2000000
-
-        score = 0
-
-        if move.promotion:
-            score += 1000000 + VALUES[move.promotion]
-
-        if board.is_capture(move):
-            victim = board.piece_at(move.to_square)
-            attacker = board.piece_at(move.from_square)
-
-            if board.is_en_passant(move):
-                victim_value = VALUES[chess.PAWN]
-            else:
-                victim_value = (
-                    VALUES[victim.piece_type] if victim else 100
-                )
-
-            attacker_value = (
-                VALUES[attacker.piece_type] if attacker else 0
-            )
-
-            score += (
-                500000
-                + victim_value * 10
-                - attacker_value
-            )
-
-            return score
-
-        killers = self.killers.get(ply, [])
-
-        if move in killers:
-            score += 400000 - killers.index(move) * 10000
-
-        history_key = (
-            board.turn,
-            move.from_square,
-            move.to_square
-        )
-
-        score += self.history.get(history_key, 0)
-
-        return score
-
-    def ordered_moves(self, board, tt_move=None, ply=0):
-        return sorted(
-            list(board.legal_moves),
-            key=lambda move: self.move_score(
-                board, move, tt_move, ply
-            ),
-            reverse=True
-        )
-
-    def record_killer(self, move, ply):
-        killers = self.killers.setdefault(ply, [])
-
-        if move in killers:
-            killers.remove(move)
-
-        killers.insert(0, move)
-
-        if len(killers) > 2:
-            killers.pop()
-
-    def record_history(self, board, move, depth):
-        key = (
-            board.turn,
-            move.from_square,
-            move.to_square
-        )
-
-        self.history[key] = min(
-            1000000,
-            self.history.get(key, 0) + depth * depth
-        )
-
-    def time_check(self):
-        if self.time_limit is None:
-            return False
-
-        if time.monotonic() - self.start_time >= self.time_limit:
-            self.stopped = True
-            return True
-
-        return False
-
-    # Odrzuca ruchy, po których przeciwnik ma natychmiastowego mata.
-    def safe_root_moves(self, board, legal_moves):
-        safe = []
-
-        for move in legal_moves:
-            board.push(move)
-
-            opponent_can_mate = False
-
-            for reply in list(board.legal_moves):
-                board.push(reply)
-
-                if board.is_checkmate():
-                    opponent_can_mate = True
-
-                board.pop()
-
-                if opponent_can_mate:
-                    break
-
-            board.pop()
-
-            if not opponent_can_mate:
-                safe.append(move)
-
-        return safe
-
-    def quiescence(self, board, alpha, beta, ply, qply=0):
-        self.nodes += 1
-
-        # Najpierw rozpoznajemy pozycje końcowe.
-        if board.is_checkmate():
-            return -MATE + ply
-
-        if board.is_stalemate() or board.is_insufficient_material():
-            return 0
-
-        # Dopiero potem sprawdzamy limit czasu.
-        if self.time_check():
-            return self.evaluate(board)
-
-        in_check = board.is_check()
-
-        # Limit quiescence nie może przerwać analizy,
-        # gdy król jest szachowany.
-        if qply >= 8 and not in_check:
-            return self.evaluate(board)
-
-        if not in_check:
-            stand_pat = self.evaluate(board)
-
-            if stand_pat >= beta:
-                return beta
-
-            alpha = max(alpha, stand_pat)
-
-            moves = [
-                move for move in board.legal_moves
-                if board.is_capture(move) or move.promotion
-            ]
-        else:
-            # W szachu analizujemy wszystkie legalne obrony.
-            moves = list(board.legal_moves)
-
-        moves.sort(
-            key=lambda move: self.move_score(board, move),
-            reverse=True
-        )
-
-        for move in moves:
-            board.push(move)
-
-            score = -self.quiescence(
-                board,
-                -beta,
-                -alpha,
-                ply + 1,
-                qply + 1
-            )
-
-            board.pop()
-
-            if self.stopped:
-                return alpha
-
-            if score >= beta:
-                return beta
-
-            alpha = max(alpha, score)
-
-        return alpha
-
-    def search(
-        self, board, depth, alpha, beta,
-        ply=0, root_moves=None
-    ):
-        self.nodes += 1
-
-        # Najpierw rozpoznajemy pozycje końcowe.
-        if board.is_checkmate():
-            return -MATE + ply
-
-        if board.is_stalemate() or board.is_insufficient_material():
-            return 0
-
-        if board.is_repetition(3):
-            return 0
-
-        # Dopiero potem sprawdzamy limit czasu.
-        if self.time_check():
-            return self.evaluate(board)
-
-        if depth <= 0:
-            return self.quiescence(
-                board, alpha, beta, ply
-            )
-
-        original_alpha = alpha
-        key = board.fen()
-        tt_entry = self.tt.get(key)
-        tt_move = None
-
-        if tt_entry:
-            tt_depth, tt_score, tt_flag, tt_move = tt_entry
-
-            # Na poziomie głównym nie używamy skrótu TT,
-            # który mógłby ominąć kontrolę bezpiecznych ruchów.
-            if ply > 0 and tt_depth >= depth:
-                if tt_flag == "EXACT":
-                    return tt_score
-
-                if tt_flag == "LOWER" and tt_score >= beta:
-                    return tt_score
-
-                if tt_flag == "UPPER" and tt_score <= alpha:
-                    return tt_score
-
-        best_score = -INF
-        best_move = None
-
-        moves = self.ordered_moves(board, tt_move, ply)
-
-        # Ograniczenie dotyczy wyłącznie ruchu głównego.
-        if ply == 0 and root_moves is not None:
-            moves = [
-                move for move in moves
-                if move in root_moves
-            ]
-
-        if not moves:
-            return -MATE + ply if board.is_check() else 0
-
-        for move in moves:
-            quiet = (
-                not board.is_capture(move)
-                and not move.promotion
-            )
-
-            board.push(move)
-
-            score = -self.search(
-                board,
-                depth - 1,
-                -beta,
-                -alpha,
-                ply + 1
-            )
-
-            board.pop()
-
-            if self.stopped:
-                return 0
-
-            if score > best_score:
-                best_score = score
-                best_move = move
-
-            alpha = max(alpha, score)
-
-            if alpha >= beta:
-                if quiet:
-                    self.record_killer(move, ply)
-                    self.record_history(board, move, depth)
-
-                break
-
-        if best_score <= original_alpha:
-            flag = "UPPER"
-        elif best_score >= beta:
-            flag = "LOWER"
-        else:
-            flag = "EXACT"
-
-        self.tt[key] = (
-            depth,
-            best_score,
-            flag,
-            best_move
-        )
-
-        if len(self.tt) > 200000:
-            self.tt.clear()
-
-        return best_score
-
-    def best_move(self, board, depth=4, movetime=DEFAULT_MOVE_TIME):
-        self.nodes = 0
-        self.stopped = False
-
-        legal = list(board.legal_moves)
-
-        if not legal:
-            return None
-
-        # Najpierw sprawdzamy bezpieczeństwo wszystkich ruchów.
-        safe = self.safe_root_moves(board, legal)
-
-        # Jeśli nie ma bezpiecznej odpowiedzi, nie blokujemy gry.
-        root_moves = safe if safe else legal
-
-        best = root_moves[0]
-
-        self.start_time = time.monotonic()
-        self.time_limit = movetime
-
-        for current_depth in range(1, max(1, depth) + 1):
-            if self.time_check():
-                break
-
-            self.stopped = False
-            self.nodes = 0
-
-            score = self.search(
-                board,
-                current_depth,
-                -INF,
-                INF,
-                root_moves=root_moves
-            )
-
-            if self.stopped:
-                break
-
-            entry = self.tt.get(board.fen())
-
-            if entry and entry[3] in root_moves:
-                best = entry[3]
-
-            print(
-                "info depth",
-                current_depth,
-                "score cp",
-                score,
-                "nodes",
-                self.nodes,
-                flush=True
-            )
-
-            if abs(score) > MATE - 100:
-                break
-
-        return best
-
-
-def uci():
-    engine = TinyBeast()
+import chess.engine
+
+from main import TinyBeast
+
+
+MOVE_TIME = 0.75
+STOCKFISH_DEPTH = 10
+
+POSITIONS = [
+    (
+        "French — przed Nxd4",
+        """
+        e4 e6 d4 d5 Nc3 Nf6 e5 Nfd7 Nf3 Nc6
+        Bd3 f6 Bf4 g5 Nxg5
+        """
+    ),
+    (
+        "French — po Qh5+",
+        """
+        e4 e6 d4 d5 Nc3 Nf6 e5 Nfd7 Nf3 Nc6
+        Bd3 f6 Bf4 g5 Nxg5 Nxd4 Qh5+
+        """
+    ),
+    (
+        "Queen's Gambit — przed Qg4#",
+        """
+        d4 d5 c4 e6 Nc3 Nf6
+        cxd5 exd5 Nf3 Be7 Qa4+ c6
+        Bf4 O-O Bxb8 Rxb8 Qxa7 Bg4
+        Ne5 Bb4 h3 Be6 a3 Bxc3+ bxc3 Ne4
+        Rb1 Qh4 g3 Qf6 Rh2 Nxc3 Rxb7 Rxb7
+        Qxb7 c5 e3 cxd4 exd4 Rc8 Bd3 Ne4
+        Bxe4 dxe4 Qxe4 Qd8 Qd3 Qa5+
+        Kf1 Rc1+ Kg2 Qe1 Nf3 Bd5
+        h4 Rc3 Qf5 Bxf3+ Qxf3 Rxf3
+        Kxf3 f5 Kf4 Qe4+
+        """
+    ),
+    (
+        "English — przed h6#",
+        """
+        c4 e5 Nc3 Nf6 g3 d5
+        d4 exd4 Qxd4 Nc6 Qd3 Nb4
+        Qe3+ Be6 Qd2 dxc4 Nf3 Qxd2+
+        Kxd2 Rd8+ Nd4 Rxd4+ Ke3 Nc2+
+        Kf3 Nxa1 Be3 Nc2 Bxd4 Nxd4+
+        Ke3 Bc5 f3 Nf5+ Kf4 Bd6+
+        """
+    ),
+    (
+        "Reti — przed Ne3#",
+        """
+        Nf3 d5 d4 Nf6 c4 e6
+        Nbd2 c5 cxd5 exd5 dxc5 Bxc5
+        Qa4+ Nc6 Qb5 Bb6 Ne5 O-O
+        Nxc6 bxc6 Qxc6 Ng4 Qxa8 Bxf2+
+        """
+    ),
+    (
+        "Reti — przed Rh7#",
+        """
+        Nf3 d5 d4 Nf6 c4 e6
+        e3 Nbd7 Nc3 c5 Be2 cxd4
+        exd4 Bd6 c5 Be7 b4 a5 b5 O-O
+        O-O Qc7 b6 Nxb6 Nb5 Qd8
+        cxb6 Qxb6 a4 Ne4 Bd3 f5
+        Rb1 Ra6 Ne5 Kh8 Bf4 g5
+        Bd2 Nxd2 Qxd2 g4 Rfc1 Qd8
+        g3 Bg5 Qe1 Bxc1 Qxc1 b6
+        h4 gxh3 Qf4 Qe8 Rc1 h5
+        Rc7 Qd8 Kh2 Qf6 Nd6 Ra8
+        Kxh3 Ba6 Kg2 Bxd3 Nxd3 Rg8
+        Ne5 Qf8 Ndf7+ Kh7 Ng5+
+        """
+    ),
+]
+
+
+def build_position(name, moves_text):
     board = chess.Board()
+    moves = moves_text.split()
 
-    while True:
+    for index, san in enumerate(moves, start=1):
         try:
-            command = input().strip()
-        except EOFError:
-            break
+            move = board.parse_san(san)
+            board.push(move)
+        except ValueError as error:
+            raise ValueError(
+                f"{name}: nielegalny ruch nr {index}: "
+                f"{san}. Pozycja: {board.fen()}"
+            ) from error
 
-        if not command:
-            continue
+    return board
 
-        parts = command.split()
-        cmd = parts[0]
 
-        if cmd == "uci":
-            print("id name Tiny Beast", flush=True)
-            print("id author Tiny Beast Project", flush=True)
-            print("uciok", flush=True)
+def immediate_mates(board):
+    mates = []
 
-        elif cmd == "isready":
-            print("readyok", flush=True)
+    for move in list(board.legal_moves):
+        board.push(move)
 
-        elif cmd == "ucinewgame":
-            board = chess.Board()
-            engine.tt.clear()
-            engine.killers.clear()
-            engine.history.clear()
+        if board.is_checkmate():
+            mates.append(move)
 
-        elif cmd == "position":
-            try:
-                if len(parts) >= 2 and parts[1] == "startpos":
-                    board = chess.Board()
-                    move_start = 2
+        board.pop()
 
-                elif len(parts) >= 2 and parts[1] == "fen":
-                    fen_end = (
-                        parts.index("moves")
-                        if "moves" in parts
-                        else len(parts)
-                    )
+    return mates
 
-                    fen = " ".join(parts[2:fen_end])
-                    board = chess.Board(fen)
-                    move_start = fen_end
 
-                else:
-                    continue
+def safe_moves(board):
+    safe = []
 
-                if (
-                    move_start < len(parts)
-                    and parts[move_start] == "moves"
-                ):
-                    for move_text in parts[move_start + 1:]:
-                        move = chess.Move.from_uci(move_text)
+    for move in list(board.legal_moves):
+        board.push(move)
 
-                        if move in board.legal_moves:
-                            board.push(move)
+        opponent_mates = immediate_mates(board)
 
-            except (ValueError, IndexError):
-                board = chess.Board()
+        board.pop()
 
-        elif cmd == "go":
-            depth = 4
-            movetime = DEFAULT_MOVE_TIME
+        if not opponent_mates:
+            safe.append(move)
 
-            if "depth" in parts:
-                try:
-                    depth = int(
-                        parts[parts.index("depth") + 1]
-                    )
-                except (ValueError, IndexError):
-                    depth = 4
+    return safe
 
-            if "movetime" in parts:
-                try:
-                    movetime = int(
-                        parts[parts.index("movetime") + 1]
-                    ) / 1000
-                except (ValueError, IndexError):
-                    movetime = DEFAULT_MOVE_TIME
 
-            move = engine.best_move(
-                board,
-                depth=depth,
-                movetime=movetime
-            )
+def test_move(board, move):
+    if move is None or move not in board.legal_moves:
+        return False, []
 
+    test_board = board.copy()
+    test_board.push(move)
+
+    mates = immediate_mates(test_board)
+
+    return not bool(mates), mates
+
+
+def describe_moves(board, moves):
+    if not moves:
+        return "brak"
+
+    return ", ".join(
+        board.san(move) for move in moves
+    )
+
+
+def main():
+    engine = TinyBeast()
+
+    stockfish = chess.engine.SimpleEngine.popen_uci(
+        "/usr/games/stockfish"
+    )
+
+    try:
+        print("========== TINY BEAST TACTICAL DIAGNOSTIC ==========")
+
+        for name, moves_text in POSITIONS:
+            print()
+            print("========================================")
+            print(name)
+            print("========================================")
+
+            board = build_position(name, moves_text)
+
+            print("FEN:", board.fen())
             print(
-                "bestmove",
-                move.uci() if move else "0000",
-                flush=True
+                "Na ruchu:",
+                "White" if board.turn == chess.WHITE else "Black"
             )
 
-        elif cmd == "stop":
-            engine.stopped = True
+            legal = list(board.legal_moves)
+            safe = safe_moves(board)
 
-        elif cmd == "quit":
-            break
+            print("Legalne ruchy:", len(legal))
+            print("Bezpieczne ruchy:", len(safe))
+            print(
+                "Lista bezpiecznych:",
+                describe_moves(board, safe)
+            )
+
+            tiny_move = engine.best_move(
+                board.copy(),
+                depth=4,
+                movetime=MOVE_TIME
+            )
+
+            tiny_safe, tiny_mates = test_move(
+                board,
+                tiny_move
+            )
+
+            print()
+            print("Tiny Beast:")
+            print(
+                "Ruch:",
+                board.san(tiny_move) if tiny_move else "brak"
+            )
+            print("Bezpieczny:", tiny_safe)
+            print(
+                "Mat w 1 po ruchu:",
+                describe_moves(
+                    board,
+                    tiny_mates
+                )
+            )
+
+            sf_result = stockfish.play(
+                board,
+                chess.engine.Limit(
+                    depth=STOCKFISH_DEPTH
+                )
+            )
+
+            sf_move = sf_result.move
+
+            sf_safe, sf_mates = test_move(
+                board,
+                sf_move
+            )
+
+            print()
+            print("Stockfish:")
+            print(
+                "Ruch:",
+                board.san(sf_move) if sf_move else "brak"
+            )
+            print("Bezpieczny:", sf_safe)
+            print(
+                "Mat w 1 po ruchu:",
+                describe_moves(
+                    board,
+                    sf_mates
+                )
+            )
+
+            print()
+            print("========================================")
+
+        print()
+        print("========== TEST ZAKOŃCZONY ==========")
+
+    finally:
+        stockfish.quit()
 
 
 if __name__ == "__main__":
-    if "--uci" in sys.argv:
-        uci()
-    else:
-        engine = TinyBeast()
-        board = chess.Board()
-
-        move = engine.best_move(
-            board,
-            depth=4
-        )
-
-        print(move)
+    main()
