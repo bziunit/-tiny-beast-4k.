@@ -1,15 +1,18 @@
+
 import chess
 import chess.engine
-import time
 
 from main import TinyBeast
 
+
 MOVE_TIME = 3.0
 STOCKFISH_DEPTH = 12
+STOCKFISH_PATH = "/usr/games/stockfish"
+REWIND_PLIES = 2
 
 POSITIONS = [
     (
-        "RUY LOPEZ — przed 33...Ka8",
+        "RUY LOPEZ",
         """
         e4 e5 Nf3 Nc6 Bb5 a6
         Bc4 b5 Bd5 Nge7 O-O Nxd5 exd5 Ne7
@@ -23,7 +26,7 @@ POSITIONS = [
         """
     ),
     (
-        "SICILIAN — przed 44...Kd7",
+        "SICILIAN",
         """
         e4 c5 Nf3 d6 d4 cxd4 Nxd4 e5 Nb5 a6
         Bg5 f6 Be3 axb5 Qh5+ g6 Bxb5+ Nc6 Qf3 Be6
@@ -38,7 +41,7 @@ POSITIONS = [
         """
     ),
     (
-        "QUEEN'S GAMBIT — przed 93.Kd4",
+        "QUEEN'S GAMBIT",
         """
         d4 d5 c4 e6 Nc3 Nf6 cxd5 exd5 Nf3 Be7
         Ne5 O-O Be3 Re8 Rc1 c6 h4 Nbd7 g3 Nxe5
@@ -62,9 +65,9 @@ POSITIONS = [
         """
     ),
     (
-        "RETI — przed 39...Kd7",
+        "RETI",
         """
-        Nf3 d5 d4 Nf6 c4 e6 e3 Nbd7 Nc3 c5 Be2 cxd4
+        Nf3 d5 Nf3 Nf6 d4 e6 c4 e6 e3 Nbd7 Nc3 c5 Be2 cxd4
         exd4 dxc4 Bxc4 Nb6 Ne5 Nxc4 Nxc4 Bd6 Qa4+ Kf8
         Nxd6 Qxd6 b3 Qc6 Qxc6 bxc6 Ba3+ Kg8 Kd2 Ba6
         Bc5 h5 h4 g6 Be7 Nd7 Ne4 Nb6 Bf6 Rh6 Rac1 Rc8
@@ -93,181 +96,132 @@ def build_position(name, moves_text):
     return board
 
 
-def immediate_mates(board):
-    mates = []
-
-    for move in list(board.legal_moves):
-        board.push(move)
-
-        if board.is_checkmate():
-            mates.append(move)
-
-        board.pop()
-
-    return mates
-
-
-def forced_mate_in_two(board):
-    forced = []
-
-    for opponent_move in list(board.legal_moves):
-        board.push(opponent_move)
-
-        if board.is_checkmate():
-            forced.append(opponent_move)
-            board.pop()
-            continue
-
-        replies = list(board.legal_moves)
-
-        if not replies:
-            board.pop()
-            continue
-
-        every_reply_loses = True
-
-        for reply in replies:
-            board.push(reply)
-
-            if board.is_checkmate():
-                every_reply_loses = False
-                board.pop()
-                break
-
-            opponent_mates = immediate_mates(board)
-            board.pop()
-
-            if not opponent_mates:
-                every_reply_loses = False
-                break
-
-        board.pop()
-
-        if every_reply_loses:
-            forced.append(opponent_move)
-
-    return forced
-
-
-def analyze_move(board, move):
-    if move is None or move not in board.legal_moves:
-        return False, [], []
-
-    test_board = board.copy()
-    test_board.push(move)
-
-    mates_one = immediate_mates(test_board)
-    mates_two = forced_mate_in_two(test_board)
-
-    return not mates_one and not mates_two, mates_one, mates_two
-
-
-def safe_moves(board):
-    result = []
-
-    for move in list(board.legal_moves):
-        safe, _, _ = analyze_move(board, move)
-
-        if safe:
-            result.append(move)
-
-    return result
-
-
-def describe_moves(board, moves):
-    if not moves:
-        return "brak"
-
-    return ", ".join(board.san(move) for move in moves)
-
-
-def describe_replies_after(board, move, replies):
-    if not replies:
-        return "brak"
-
-    position = board.copy()
-    position.push(move)
-
-    return ", ".join(position.san(reply) for reply in replies)
-
-
-def report_move(board, label, move):
-    print()
-    print(label)
-
-    if move is None:
-        print("Ruch: brak")
-        return
-
-    print("Ruch:", board.san(move))
-
-    safe, mates_one, mates_two = analyze_move(board, move)
+def score_after_move(engine, board, move):
+    if move not in board.legal_moves:
+        return None, []
 
     after = board.copy()
     after.push(move)
 
-    print("Bezpieczny według diagnostyki:", safe)
-    print(
-        "Mat w 1 po tym ruchu:",
-        describe_moves(after, mates_one)
+    mates = []
+    for reply in list(after.legal_moves):
+        after.push(reply)
+        if after.is_checkmate():
+            mates.append(reply)
+        after.pop()
+
+    info = engine.analyse(
+        after,
+        chess.engine.Limit(depth=STOCKFISH_DEPTH)
     )
-    print(
-        "Ruchy przeciwnika wymuszające mata w 2:",
-        describe_replies_after(board, move, mates_two)
+
+    score = info["score"].pov(board.turn).score(
+        mate_score=100000
     )
+
+    return score, mates
+
+
+def describe_score(score):
+    if score is None:
+        return "brak oceny"
+
+    return f"{score / 100:+.2f}"
+
+
+def analyze_position(name, final_board, tiny, stockfish):
+    board = final_board.copy()
+
+    if len(board.move_stack) < REWIND_PLIES:
+        raise ValueError(f"{name}: za mało ruchów do cofnięcia.")
+
+    final_fen = board.fen()
+
+    # Cofamy się przez ostatni ruch przeciwnika
+    # i wcześniejszy ruch strony, która popełniła błąd.
+    opponent_check = board.pop()
+    historical_move = board.pop()
+
+    if historical_move not in board.legal_moves:
+        raise ValueError(
+            f"{name}: historyczny ruch nie jest legalny "
+            f"po cofnięciu: {historical_move}"
+        )
+
+    print()
+    print("=" * 65)
+    print(name)
+    print("=" * 65)
+    print("FEN końcowej, już przegranej pozycji:", final_fen)
+    print("FEN przed podejrzanym ruchem:", board.fen())
+    print(
+        "Strona na ruchu:",
+        "White" if board.turn == chess.WHITE else "Black"
+    )
+    print("Historyczny ruch:", board.san(historical_move))
+    print("Następny ruch przeciwnika:", opponent_check)
+    print("Liczba legalnych ruchów:", board.legal_moves.count())
+
+    tiny_move = tiny.best_move(
+        board.copy(),
+        depth=4,
+        movetime=MOVE_TIME
+    )
+
+    stockfish_result = stockfish.play(
+        board,
+        chess.engine.Limit(depth=STOCKFISH_DEPTH)
+    )
+    stockfish_move = stockfish_result.move
+
+    candidates = [
+        ("HISTORYCZNY RUCH", historical_move),
+        ("TINY BEAST", tiny_move),
+        ("STOCKFISH", stockfish_move),
+    ]
+
+    print()
+    for label, move in candidates:
+        if move is None or move not in board.legal_moves:
+            print(label, ": brak legalnego ruchu")
+            continue
+
+        san = board.san(move)
+        score, mates = score_after_move(stockfish, board, move)
+
+        print(label)
+        print("  Ruch:", san)
+        print("  Ocena Stockfish po ruchu:", describe_score(score))
+
+        if mates:
+            print(
+                "  Natychmiastowy mat przeciwnika:",
+                ", ".join(str(m) for m in mates)
+            )
+        else:
+            print("  Natychmiastowy mat przeciwnika: brak")
 
 
 def main():
     tiny = TinyBeast()
-
     stockfish = chess.engine.SimpleEngine.popen_uci(
-        "/usr/games/stockfish"
+        STOCKFISH_PATH
     )
 
     try:
-        print("========== DIAGNOSTYKA CZTERECH PRZEGRANYCH ==========")
+        print("========== ANALIZA RUCHÓW PRZED PRZEGRANYMI ==========")
 
         for name, moves_text in POSITIONS:
-            print()
-            print("=" * 60)
-            print(name)
-            print("=" * 60)
-
-            board = build_position(name, moves_text)
-
-            print("FEN:", board.fen())
-            print(
-                "Na ruchu:",
-                "White" if board.turn == chess.WHITE else "Black"
+            final_board = build_position(name, moves_text)
+            analyze_position(
+                name,
+                final_board,
+                tiny,
+                stockfish
             )
-            print("Król w szachu:", board.is_check())
-            print("Legalne ruchy:", len(list(board.legal_moves)))
-
-            start = time.perf_counter()
-            safe = safe_moves(board)
-            elapsed = time.perf_counter() - start
-
-            print("Bezpieczne ruchy:", len(safe))
-            print("Lista bezpiecznych:", describe_moves(board, safe))
-            print(f"Czas filtra diagnostycznego: {elapsed:.3f} s")
-
-            tiny_move = tiny.best_move(
-                board.copy(),
-                depth=4,
-                movetime=MOVE_TIME
-            )
-
-            report_move(board, "TINY BEAST", tiny_move)
-
-            sf_result = stockfish.play(
-                board,
-                chess.engine.Limit(depth=STOCKFISH_DEPTH)
-            )
-
-            report_move(board, "STOCKFISH", sf_result.move)
 
         print()
-        print("========== DIAGNOSTYKA ZAKOŃCZONA ==========")
+        print("========== ANALIZA ZAKOŃCZONA ==========")
 
     finally:
         stockfish.quit()
