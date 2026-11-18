@@ -7,6 +7,7 @@ NAME = "Tiny Beast"
 MATE = 100000
 INF = 1000000
 DEFAULT_MOVE_TIME = 0.75
+MATERIAL_RISK_LIMIT = 120
 
 VALUES = {
     chess.PAWN: 100,
@@ -271,6 +272,77 @@ class TinyBeast:
 
         return score if board.turn == chess.WHITE else -score
 
+    # Oblicza, ile materiału można zdobyć przez wymianę
+    # figur na jednym polu. Uwzględnia legalne odbicia.
+    def exchange_gain(self, board, target, depth=0):
+        if depth >= 12:
+            return 0
+
+        victim = board.piece_at(target)
+
+        if victim is None:
+            return 0
+
+        victim_value = VALUES[victim.piece_type]
+        best_gain = 0
+
+        for move in list(board.legal_moves):
+            if move.to_square != target:
+                continue
+
+            if not board.is_capture(move):
+                continue
+
+            gain = victim_value
+
+            if move.promotion:
+                gain += (
+                    VALUES[move.promotion]
+                    - VALUES[chess.PAWN]
+                )
+
+            board.push(move)
+
+            gain -= self.exchange_gain(
+                board,
+                target,
+                depth + 1
+            )
+
+            board.pop()
+
+            best_gain = max(best_gain, gain)
+
+        return max(0, best_gain)
+
+    # Największa możliwa korzyść materiałowa z natychmiastowego bicia.
+    def material_capture_gain(self, board):
+        best_gain = 0
+
+        for move in list(board.legal_moves):
+            if not board.is_capture(move):
+                continue
+
+            victim = board.piece_at(move.to_square)
+
+            if victim is None:
+                continue
+
+            if victim.color == board.turn:
+                continue
+
+            gain = self.exchange_gain(
+                board,
+                move.to_square
+            )
+
+            best_gain = max(best_gain, gain)
+
+            if best_gain >= MATERIAL_RISK_LIMIT:
+                return best_gain
+
+        return best_gain
+
     def move_score(self, board, move, tt_move=None, ply=0):
         if move == tt_move:
             return 2000000
@@ -372,58 +444,66 @@ class TinyBeast:
 
         return False
 
-    # Odrzuca ruchy pozwalające przeciwnikowi na mata
-    # w jednym ruchu albo wymuszonego mata w dwóch.
+    # Odrzuca ruchy pozwalające na duży zysk materiałowy
+    # albo wymuszony mat.
     def safe_root_moves(self, board, legal_moves):
         safe = []
 
         for move in legal_moves:
             board.push(move)
 
+            # Najpierw sprawdzamy, czy przeciwnik może
+            # natychmiast zdobyć znaczną ilość materiału.
+            material_risk = self.material_capture_gain(board)
+
             opponent_can_force_mate = False
 
-            for reply in list(board.legal_moves):
-                board.push(reply)
+            if material_risk < MATERIAL_RISK_LIMIT:
+                for reply in list(board.legal_moves):
+                    board.push(reply)
 
-                # Bezpośredni mat przeciwnika.
-                if board.is_checkmate():
-                    opponent_can_force_mate = True
-                    board.pop()
-                    break
-
-                our_replies = list(board.legal_moves)
-
-                # Pat nie jest matem.
-                if not our_replies:
-                    board.pop()
-                    continue
-
-                # Sprawdzamy, czy każda nasza odpowiedź
-                # pozwala przeciwnikowi zamatować w następnym ruchu.
-                every_reply_allows_mate = True
-
-                for our_reply in our_replies:
-                    board.push(our_reply)
-
-                    opponent_has_mate = (
-                        self.opponent_has_mate_in_one(board)
-                    )
-
-                    board.pop()
-
-                    if not opponent_has_mate:
-                        every_reply_allows_mate = False
+                    # Bezpośredni mat przeciwnika.
+                    if board.is_checkmate():
+                        opponent_can_force_mate = True
+                        board.pop()
                         break
 
-                board.pop()
+                    our_replies = list(board.legal_moves)
 
-                if every_reply_allows_mate:
-                    opponent_can_force_mate = True
-                    break
+                    # Pat nie jest matem.
+                    if not our_replies:
+                        board.pop()
+                        continue
+
+                    # Sprawdzamy, czy każda nasza odpowiedź
+                    # pozwala przeciwnikowi zamatować w następnym ruchu.
+                    every_reply_allows_mate = True
+
+                    for our_reply in our_replies:
+                        board.push(our_reply)
+
+                        opponent_has_mate = (
+                            self.opponent_has_mate_in_one(board)
+                        )
+
+                        board.pop()
+
+                        if not opponent_has_mate:
+                            every_reply_allows_mate = False
+                            break
+
+                    board.pop()
+
+                    if every_reply_allows_mate:
+                        opponent_can_force_mate = True
+                        break
 
             board.pop()
 
-            if not opponent_can_force_mate:
+            if (
+                material_risk < MATERIAL_RISK_LIMIT
+                and not opponent_can_force_mate
+            ):
                 safe.append(move)
 
         return safe
