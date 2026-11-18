@@ -12,6 +12,7 @@ on:
       - "loss_diagnostic.py"
       - "blunder_scan.py"
       - "move_check.py"
+      - "move_check_white.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
@@ -48,3 +49,6 @@ jobs:
 
       - name: Analyze Ruy Lopez move 12 Nb4
         run: python move_check.py
+
+      - name: Analyze Ruy Lopez move 12 Qf3
+        run: python move_check_white.py
