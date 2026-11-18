@@ -4,7 +4,6 @@ import time
 
 from main import TinyBeast
 
-
 MOVE_TIME = 3.0
 STOCKFISH_DEPTH = 12
 
