@@ -1,7 +1,10 @@
 
 import chess
 import chess.engine
+import io
+import time
 
+from contextlib import redirect_stdout
 from loss_diagnostic import POSITIONS
 from main import TinyBeast
 
@@ -15,6 +18,26 @@ TINY_MOVE_TIME = 1.0
 TARGET_POSITIONS = 10
 MAX_SCANNED = 300
 MIN_POSITION_GAP = 8
+
+
+class TimedCapture:
+    def __init__(self):
+        self.start = time.monotonic()
+        self.buffer = ""
+        self.lines = []
+
+    def write(self, text):
+        self.buffer += text
+
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            elapsed = time.monotonic() - self.start
+            self.lines.append((elapsed, line))
+
+        return len(text)
+
+    def flush(self):
+        pass
 
 
 def build_candidates():
@@ -176,11 +199,48 @@ def compare_engines(tiny, stockfish, selected):
                 f"| {score} cp"
             )
 
-        tiny_move = tiny.best_move(
-            board.copy(),
-            depth=TINY_DEPTH,
-            movetime=TINY_MOVE_TIME
-        )
+        capture = TimedCapture()
+        total_start = time.monotonic()
+
+        with redirect_stdout(capture):
+            tiny_move = tiny.best_move(
+                board.copy(),
+                depth=TINY_DEPTH,
+                movetime=TINY_MOVE_TIME
+            )
+
+        total_time = time.monotonic() - total_start
+
+        print("\nPOMIAR CZASU TINY BEAST:")
+
+        safety_elapsed = 0.0
+
+        for elapsed, line in capture.lines:
+            if "safety_filter_time" in line:
+                parts = line.split()
+
+                try:
+                    safety_elapsed = float(parts[3])
+                except (ValueError, IndexError):
+                    pass
+
+                print(
+                    f"Filtr bezpieczeństwa: "
+                    f"{safety_elapsed:.3f} s"
+                )
+
+            elif line.startswith("info depth"):
+                search_elapsed = max(
+                    0.0, elapsed - safety_elapsed
+                )
+
+                print(
+                    f"  {line} "
+                    f"| czas wyszukiwania: "
+                    f"{search_elapsed:.3f} s"
+                )
+
+        print(f"Łączny czas: {total_time:.3f} s")
 
         if tiny_move is None:
             print("Tiny Beast: brak ruchu")
@@ -202,11 +262,7 @@ def compare_engines(tiny, stockfish, selected):
         in_top3 = tiny_move in stockfish_moves
 
         print("\nTiny Beast:", tiny_san)
-        print(
-            "Czas filtra bezpieczeństwa:",
-            f"{tiny.safety_time:.3f} s"
-        )
-        print("Wybrał spokojny ruch pionem:", is_pawn)
+        print("Spokojny ruch pionem:", is_pawn)
         print("Ruch w TOP 3 Stockfisha:", in_top3)
 
         if stockfish_moves and tiny_move == stockfish_moves[0]:
