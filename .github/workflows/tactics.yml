@@ -16,6 +16,7 @@ on:
       - "position_test.py"
       - "pawn_strategy_test.py"
       - "targeted_diagnostic.py"
+      - "sicilian_12ra5_diagnostic.py"
       - "requirements.txt"
       - ".github/workflows/tactics.yml"
 
@@ -64,3 +65,6 @@ jobs:
 
       - name: Analyze two critical match positions
         run: python targeted_diagnostic.py
+
+      - name: Diagnose Sicilian move 12 Ra5
+        run: python sicilian_12ra5_diagnostic.py
