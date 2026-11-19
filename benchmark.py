@@ -18,12 +18,14 @@ def benchmark():
 
     print("TINY BEAST 4K BENCHMARK")
     print("-----------------------")
+    print("Search depth: 4")
+    print("Move time limit: 5 seconds")
 
     for number, fen in enumerate(positions, 1):
         board = chess.Board(fen)
 
         start = time.perf_counter()
-        move = engine.best_move(board, depth=3, movetime=2.0)
+        move = engine.best_move(board, depth=4, movetime=5.0)
         elapsed = time.perf_counter() - start
 
         nodes = engine.nodes
