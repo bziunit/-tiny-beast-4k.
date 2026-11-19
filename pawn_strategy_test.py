@@ -1,7 +1,6 @@
 
 import chess
 import chess.engine
-import io
 import time
 
 from contextlib import redirect_stdout
@@ -13,7 +12,7 @@ STOCKFISH_PATH = "/usr/games/stockfish"
 SCAN_DEPTH = 10
 REPORT_DEPTH = 12
 TINY_DEPTH = 4
-TINY_MOVE_TIME = 1.0
+TINY_MOVE_TIME = 3.0
 
 TARGET_POSITIONS = 10
 MAX_SCANNED = 300
@@ -247,10 +246,7 @@ def compare_engines(tiny, stockfish, selected):
             continue
 
         tiny_san = board.san(tiny_move)
-        top_san = [
-            board.san(move)
-            for move in stockfish_moves
-        ]
+        in_top3 = tiny_move in stockfish_moves
 
         is_pawn = is_quiet_pawn_advance(
             board, tiny_move
@@ -258,8 +254,6 @@ def compare_engines(tiny, stockfish, selected):
 
         if is_pawn:
             pawn_moves += 1
-
-        in_top3 = tiny_move in stockfish_moves
 
         print("\nTiny Beast:", tiny_san)
         print("Spokojny ruch pionem:", is_pawn)
