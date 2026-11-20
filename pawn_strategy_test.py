@@ -210,9 +210,11 @@ def compare_engines(tiny, stockfish, selected):
 
         total_time = time.monotonic() - total_start
 
-        print("\nPOMIAR CZASU TINY BEAST:")
+        print("\nPOMIAR CZASU I WĘZŁÓW TINY BEAST:")
 
         safety_elapsed = 0.0
+        last_depth = 0
+        last_depth_nodes = 0
 
         for elapsed, line in capture.lines:
             if "safety_filter_time" in line:
@@ -229,9 +231,27 @@ def compare_engines(tiny, stockfish, selected):
                 )
 
             elif line.startswith("info depth"):
+                parts = line.split()
                 search_elapsed = max(
                     0.0, elapsed - safety_elapsed
                 )
+
+                try:
+                    depth_index = parts.index("depth")
+                    nodes_index = parts.index("nodes")
+
+                    current_depth = int(
+                        parts[depth_index + 1]
+                    )
+                    current_nodes = int(
+                        parts[nodes_index + 1]
+                    )
+
+                    last_depth = current_depth
+                    last_depth_nodes = current_nodes
+
+                except (ValueError, IndexError):
+                    pass
 
                 print(
                     f"  {line} "
@@ -240,6 +260,24 @@ def compare_engines(tiny, stockfish, selected):
                 )
 
         print(f"Łączny czas: {total_time:.3f} s")
+        print(
+            f"Ostatnia ukończona głębokość: "
+            f"{last_depth}/{TINY_DEPTH}"
+        )
+        print(
+            f"Węzły ostatniej ukończonej głębokości: "
+            f"{last_depth_nodes}"
+        )
+        print(
+            f"Węzły w ostatniej iteracji: {tiny.nodes}"
+        )
+
+        if last_depth < TINY_DEPTH:
+            print(
+                "UWAGA: Nie ukończono docelowej głębokości. "
+                "Liczba węzłów ostatniej iteracji pokazuje "
+                "stan licznika po zatrzymaniu wyszukiwania."
+            )
 
         if tiny_move is None:
             print("Tiny Beast: brak ruchu")
